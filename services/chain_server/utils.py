@@ -58,7 +58,7 @@ try:
         from llama_index.core.schema import NodeWithScore
     from llama_index.core.callbacks import CallbackManager
 
-    from RAG.src.chain_server.tracing import llama_index_cb_handler
+    from chain_server.tracing import llama_index_cb_handler
 except Exception as e:
     logger.error(f"Llamaindex import failed with error: {e}")
 
@@ -95,10 +95,10 @@ from langchain_core.documents.compressor import BaseDocumentCompressor
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import SimpleChatModel
 
-from RAG.src.chain_server import configuration
+from chain_server import configuration
 
 if TYPE_CHECKING:
-    from RAG.src.chain_server.configuration_wizard import ConfigWizard
+    from chain_server.configuration_wizard import ConfigWizard
 
 DEFAULT_MAX_CONTEXT = 1500
 

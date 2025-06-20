@@ -208,7 +208,7 @@ def import_example() -> None:
     """
 
     # path of the example directory, to check for chain implementation
-    file_location = os.path.join(EXAMPLE_DIR, os.environ.get("EXAMPLE_PATH", "basic_rag"))
+    file_location = os.path.join(EXAMPLE_DIR, os.environ.get("EXAMPLE_PATH", "."))
 
     # Walk through the directory to find the RAG chains and store it's class
     for root, dirs, files in os.walk(file_location):

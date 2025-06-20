@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """The definition of the application configuration."""
-from RAG.src.chain_server.configuration_wizard import ConfigWizard, configclass, configfield
+from chain_server.configuration_wizard import ConfigWizard, configclass, configfield
 
 
 @configclass
