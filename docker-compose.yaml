@@ -15,7 +15,7 @@ services:
         # Build args, used to copy relevant directory inside the container relative to root
         EXAMPLE_PATH: '.'
     volumes:
-      - ./prompt.yaml:/prompt.yaml
+      - /static-data/team_08/prompt.yaml:/prompt.yaml
     # start the server on port 8081
     command: --port 8081 --host 0.0.0.0
     environment:
