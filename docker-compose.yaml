@@ -122,8 +122,8 @@ services:
     build:
       context: ./services/chain-server
       dockerfile: Dockerfile
-    volumes:
-      - /static_data/team_08/prompt.yaml:/opt/chain_server/prompt.yaml
+    # volumes:
+    #  - /static_data/team_08/prompt.yaml:/opt/chain_server/prompt.yaml
     command: --port 8081 --host 0.0.0.0
     environment:
       # Vector store configuration
