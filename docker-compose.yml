@@ -1,0 +1,102 @@
+version: '3.8'
+
+include:
+  - path:
+    - infrastructure/vectordb/docker-compose.vectordb.yml
+    - infrastructure/nim-services/docker-compose.nim.yml
+
+services:
+  chain-server:
+    container_name: chain-server
+    image: chain-server:${TAG:-latest}
+    build:
+      context: ./services/chain-server
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/chain-server/config/prompt.yaml:/app/config/prompt.yaml
+    command: ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      # Vector database configuration
+      APP_VECTORSTORE_URL: "http://milvus:19530"
+      APP_VECTORSTORE_NAME: "milvus"
+      
+      # LLM configuration
+      APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
+      APP_LLM_MODELENGINE: nvidia-ai-endpoints
+      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL:-""}
+      
+      # Embedding configuration
+      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/nv-embedqa-e5-v5}
+      APP_EMBEDDINGS_MODELENGINE: ${APP_EMBEDDINGS_MODELENGINE:-nvidia-ai-endpoints}
+      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL:-""}
+      
+      # Text splitter configuration
+      APP_TEXTSPLITTER_MODELNAME: Snowflake/snowflake-arctic-embed-l
+      APP_TEXTSPLITTER_CHUNKSIZE: 506
+      APP_TEXTSPLITTER_CHUNKOVERLAP: 200
+      
+      # API keys
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      
+      # Collection configuration
+      COLLECTION_NAME: ${COLLECTION_NAME:-nvidia_api_catalog}
+      
+      # Retrieval configuration
+      APP_RETRIEVER_TOPK: 4
+      APP_RETRIEVER_SCORETHRESHOLD: 0.25
+      
+      # Observability configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      ENABLE_TRACING: false
+      
+      # Logging configuration
+      LOGLEVEL: ${LOGLEVEL:-INFO}
+    ports:
+      - "8081:8081"
+    expose:
+      - "8081"
+    shm_size: 5gb
+    depends_on:
+      nemollm-embedding:
+        condition: service_healthy
+        required: false
+      nemollm-inference:
+        condition: service_healthy
+        required: false
+    networks:
+      - nvidia-rag
+
+  rag-playground:
+    container_name: rag-playground
+    image: rag-playground:${TAG:-latest}
+    build:
+      context: ./services/rag-playground
+      dockerfile: Dockerfile
+      args:
+        PLAYGROUND_MODE: ${PLAYGROUND_MODE:-default}
+    command: ["python3.10", "-m", "frontend", "--port", "8090"]
+    environment:
+      # Chain server configuration
+      APP_SERVERURL: http://chain-server
+      APP_SERVERPORT: 8081
+      
+      # UI configuration
+      APP_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
+      
+      # Observability configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      ENABLE_TRACING: false
+    ports:
+      - "8090:8090"
+    expose:
+      - "8090"
+    depends_on:
+      - chain-server
+    networks:
+      - nvidia-rag
+
+networks:
+  nvidia-rag:
+    name: nvidia-rag
