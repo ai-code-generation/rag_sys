@@ -21,9 +21,9 @@ from langchain_community.document_loaders import UnstructuredFileLoader
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
 
-from RAG.src.chain_server.base import BaseExample
-from RAG.src.chain_server.tracing import langchain_instrumentation_class_wrapper
-from RAG.src.chain_server.utils import (
+from chain_server.base import BaseExample
+from chain_server.tracing import langchain_instrumentation_class_wrapper
+from chain_server.utils import (
     create_vectorstore_langchain,
     del_docs_vectorstore_langchain,
     get_config,
