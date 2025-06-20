@@ -1,5 +1,3 @@
-version: '3.8'
-
 include:
   - path:
     - infrastructure/vectordb/docker-compose.vectordb.yml
@@ -22,9 +20,9 @@ services:
       
       # LLM configuration
       APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
-      APP_LLM_MODELENGINE: nvidia-ai-endpoints
+      APP_LLM_MODELENGINE: ${APP_LLM_MODELENGINE:-nvidia-ai-endpoints}
       APP_LLM_SERVERURL: ${APP_LLM_SERVERURL:-""}
-      
+
       # Embedding configuration
       APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/nv-embedqa-e5-v5}
       APP_EMBEDDINGS_MODELENGINE: ${APP_EMBEDDINGS_MODELENGINE:-nvidia-ai-endpoints}

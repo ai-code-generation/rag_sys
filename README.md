@@ -25,12 +25,14 @@ custom_basic_rag_modular/
 - NVIDIA API Key ([Get one free](https://build.nvidia.com/explore/discover))
 - 8GB+ RAM recommended
 
-### 1. Set Environment Variables
+### Option 1: Cloud Deployment (NVIDIA AI Endpoints)
+
+#### 1. Set Environment Variables
 ```bash
 export NVIDIA_API_KEY="nvapi-your-key-here"
 ```
 
-### 2. Deploy the Stack
+#### 2. Deploy the Stack
 ```bash
 # Clone and navigate
 cd custom_basic_rag_modular
@@ -39,10 +41,34 @@ cd custom_basic_rag_modular
 docker compose up -d --build
 ```
 
+### Option 2: Local Deployment (NVIDIA NIM Services)
+
+#### Prerequisites for Local NIM
+- NVIDIA GPU with 16GB+ VRAM (recommended)
+- NVIDIA Docker runtime installed
+- NGC API Key ([Get one free](https://ngc.nvidia.com/))
+
+#### 1. Set Environment Variables
+```bash
+export NGC_API_KEY="your-ngc-api-key-here"
+export NVIDIA_API_KEY="nvapi-your-key-here"  # Still needed for some services
+```
+
+#### 2. Deploy with Local NIM
+```bash
+# Linux/macOS
+./deploy-local-nim.sh
+
+# Windows
+deploy-local-nim.bat
+```
+
 ### 3. Access the Application
 - **RAG Playground**: http://localhost:8090
 - **Chain Server API**: http://localhost:8081
 - **API Documentation**: http://localhost:8081/docs
+- **LLM NIM Service**: http://localhost:8000 (local deployment only)
+- **Embedding NIM**: http://localhost:9080 (local deployment only)
 
 ## 📋 Services
 
@@ -68,6 +94,7 @@ docker compose up -d --build
 ### Environment Variables
 Copy `.env.example` to `.env` and customize:
 
+#### For Cloud Deployment (NVIDIA AI Endpoints)
 ```bash
 # Required
 NVIDIA_API_KEY=nvapi-your-key-here
@@ -76,12 +103,40 @@ NVIDIA_API_KEY=nvapi-your-key-here
 APP_LLM_MODELNAME=meta/llama3-8b-instruct
 APP_EMBEDDINGS_MODELNAME=nvidia/nv-embedqa-e5-v5
 
+# Model Engine (use cloud endpoints)
+APP_LLM_MODELENGINE=nvidia-ai-endpoints
+APP_EMBEDDINGS_MODELENGINE=nvidia-ai-endpoints
+
 # Retrieval Settings
 APP_RETRIEVER_TOPK=4
 APP_RETRIEVER_SCORETHRESHOLD=0.25
 
 # UI Mode
 PLAYGROUND_MODE=default  # or 'speech' for voice features
+```
+
+#### For Local NIM Deployment
+```bash
+# Required
+NVIDIA_API_KEY=nvapi-your-key-here
+NGC_API_KEY=your-ngc-api-key-here
+
+# Model Configuration
+APP_LLM_MODELNAME=meta/llama3-8b-instruct
+APP_EMBEDDINGS_MODELNAME=nvidia/nv-embedqa-e5-v5
+
+# Model Engine (use local NIM services)
+APP_LLM_MODELENGINE=local-nim
+APP_EMBEDDINGS_MODELENGINE=local-nim
+
+# Server URLs for local NIM
+APP_LLM_SERVERURL=http://nemollm-inference:8000/v1
+APP_EMBEDDINGS_SERVERURL=http://nemollm-embedding:8000/v1
+
+# NIM Configuration
+MODEL_DIRECTORY=./models
+USERID=1000
+INFERENCE_GPU_COUNT=1
 ```
 
 ### Service-Specific Configuration
@@ -182,6 +237,7 @@ Enable by setting `ENABLE_TRACING=true` in your environment.
    ```bash
    # Verify key is set
    echo $NVIDIA_API_KEY
+   echo $NGC_API_KEY  # For local NIM
    ```
 
 3. **Port conflicts**
@@ -190,6 +246,28 @@ Enable by setting `ENABLE_TRACING=true` in your environment.
    netstat -tulpn | grep :8081
    netstat -tulpn | grep :8090
    ```
+
+4. **Local NIM Issues**
+   ```bash
+   # Check NIM service logs
+   docker compose logs nemollm-inference
+   docker compose logs nemollm-embedding
+
+   # Check GPU availability
+   nvidia-smi
+
+   # Verify NVIDIA Docker runtime
+   docker run --rm --gpus all nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
+
+   # Check model download progress
+   docker compose logs -f nemollm-inference
+   ```
+
+5. **Model download failures**
+   - Ensure NGC_API_KEY is valid
+   - Check internet connectivity
+   - Verify sufficient disk space (models are 4-8GB each)
+   - Models are cached in `./models` directory
 
 ### Getting Help
 - Check service-specific READMEs
