@@ -14,25 +14,23 @@ You do not need a GPU on your machine to run this example.
 | ------------------------ | ------------------------ | --------- | --------------- | ------------ |
 | meta/llama3-70b-instruct | nvidia/nv-embedqa-e5-v5 | LangChain | Milvus          | TXT, PDF, MD |
 
-## Prerequisites
+## Quick Start
 
-1. Docker and Docker Compose installed
-2. NVIDIA API key for accessing NVIDIA AI Endpoints
-3. (Optional) NVIDIA GPU for local NIM deployment
+1. **Get your NVIDIA API Key** from [https://build.nvidia.com/](https://build.nvidia.com/)
 
-## Build and Start the Containers
-
-1. Export your NVIDIA API key as an environment variable:
-
-   ```text
-   export NVIDIA_API_KEY="nvapi-<...>"
+2. **Set your API key**:
+   ```bash
+   export NVIDIA_API_KEY="nvapi-your-key-here"
    ```
 
-1. Start the containers:
-
-   ```console
+3. **Deploy the system**:
+   ```bash
    docker compose up -d --build
    ```
+
+4. **Access the application**: Open [http://localhost:8090](http://localhost:8090)
+
+For detailed deployment options and troubleshooting, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
    *Example Output*
 
