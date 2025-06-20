@@ -1,0 +1,206 @@
+version: '3.8'
+
+services:
+  # Vector Database Services
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.16
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9011:9011"
+      - "9010:9010"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9011" --address ":9010"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.4.15-gpu
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9010
+      KNOWHERE_GPU_MEM_POOL_SIZE: 2048;4096
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - "etcd"
+      - "minio"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: ["gpu"]
+              device_ids: ['${VECTORSTORE_GPU_DEVICE_ID:-0}']
+
+  # NVIDIA NIM Services
+  nemollm-inference:
+    container_name: nemollm-inference-microservice
+    image: nvcr.io/nim/meta/llama3-8b-instruct:1.0.3
+    volumes:
+      - ${MODEL_DIRECTORY}:/opt/nim/.cache
+    user: "${USERID}"
+    ports:
+      - "8000:8000"
+    expose:
+      - "8000"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+    shm_size: 20gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${INFERENCE_GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/v1/health/ready')"]
+      interval: 10s
+      timeout: 20s
+      retries: 100
+
+  nemollm-embedding:
+    container_name: nemo-retriever-embedding-microservice
+    image: nvcr.io/nim/nvidia/nv-embedqa-e5-v5:1.0.1
+    volumes:
+      - ${MODEL_DIRECTORY}:/opt/nim/.cache
+    ports:
+      - "9080:8000"
+    expose:
+      - "8000"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+    user: "${USERID}"
+    shm_size: 16GB
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${EMBEDDING_MS_GPU_ID:-0}']
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10m
+
+  # RAG Application Services
+  chain-server:
+    container_name: chain-server
+    image: chain-server:${TAG:-latest}
+    build:
+      context: ./services/chain-server
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/chain-server/prompt.yaml:/opt/chain_server/prompt.yaml
+    command: --port 8081 --host 0.0.0.0
+    environment:
+      # Vector store configuration
+      APP_VECTORSTORE_URL: "http://milvus:19530"
+      APP_VECTORSTORE_NAME: "milvus"
+
+      # LLM configuration for local NIM
+      APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
+      APP_LLM_MODELENGINE: nvidia-ai-endpoints
+      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL:-"http://nemollm-inference:8000/v1"}
+
+      # Embedding configuration for local NIM
+      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/nv-embedqa-e5-v5}
+      APP_EMBEDDINGS_MODELENGINE: ${APP_EMBEDDINGS_MODELENGINE:-nvidia-ai-endpoints}
+      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL:-"http://nemollm-embedding:8000/v1"}
+
+      # Text splitter configuration
+      APP_TEXTSPLITTER_MODELNAME: Snowflake/snowflake-arctic-embed-l
+      APP_TEXTSPLITTER_CHUNKSIZE: 506
+      APP_TEXTSPLITTER_CHUNKOVERLAP: 200
+
+      # API Key for NIM services
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+
+      # Vector store collection
+      COLLECTION_NAME: ${COLLECTION_NAME:-nvidia_api_catalog}
+
+      # Retriever configuration
+      APP_RETRIEVER_TOPK: 4
+      APP_RETRIEVER_SCORETHRESHOLD: 0.25
+
+      # Observability (disabled by default)
+      ENABLE_TRACING: false
+
+      # Logging
+      LOGLEVEL: ${LOGLEVEL:-INFO}
+    ports:
+      - "8081:8081"
+    expose:
+      - "8081"
+    shm_size: 5gb
+    depends_on:
+      nemollm-embedding:
+        condition: service_healthy
+        required: false
+      nemollm-inference:
+        condition: service_healthy
+        required: false
+      milvus:
+        condition: service_started
+
+  rag-playground:
+    container_name: rag-playground
+    image: rag-playground:${TAG:-latest}
+    build:
+      context: ./services/rag-playground
+      dockerfile: Dockerfile
+      args:
+        PLAYGROUND_MODE: ${PLAYGROUND_MODE:-default}
+    command: --port 8090
+    environment:
+      # Chain server connection
+      APP_SERVERURL: http://chain-server
+      APP_SERVERPORT: 8081
+
+      # Model name for UI display
+      APP_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
+
+      # Observability (disabled by default)
+      ENABLE_TRACING: false
+    ports:
+      - "8090:8090"
+    expose:
+      - "8090"
+    depends_on:
+      - chain-server
+
+networks:
+  default:
+    name: nvidia-rag
