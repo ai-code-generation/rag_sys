@@ -8,9 +8,10 @@ services:
       - "8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
     volumes:
-      # Optional: Mount cache directory for model downloads
-      - reranking-cache:/home/app/.cache
+      # Mount specific cache directory for model downloads
+      - /static-data/team_08/.cache/rag:/home/app/.cache
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
       interval: 30s
@@ -23,16 +24,13 @@ services:
           memory: 4G
         reservations:
           memory: 2G
-          # Uncomment below if you want to use GPU
-          # devices:
-          #   - driver: nvidia
-          #     device_ids: ['${RANKING_MS_GPU_ID:-0}']
-          #     capabilities: [gpu]
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  reranking-cache:
-    driver: local
+
 
 networks:
   default:

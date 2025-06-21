@@ -5,6 +5,7 @@ A FastAPI-based reranking service that implements the NVIDIA NIM reranking API i
 
 import logging
 import time
+import os
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
@@ -26,7 +27,7 @@ class PassageModel(BaseModel):
     text: str
 
 class RankingRequest(BaseModel):
-    model: str = Field(default="custom-reranker", description="Model name")
+    model: str = Field(default="BAAI/bge-reranker-v2-m3", description="Model name")
     query: QueryModel
     passages: List[PassageModel]
     truncate: Optional[str] = Field(default="NONE", description="Truncation strategy: NONE or END")
@@ -55,15 +56,27 @@ def load_reranker_model():
     """Load the cross-encoder model for reranking."""
     global reranker_model
     try:
-        # Using a lightweight cross-encoder model
-        # You can replace this with any cross-encoder model from sentence-transformers
-        model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        # Using BAAI/bge-reranker-v2-m3 - a stronger reranking model
+        model_name = "BAAI/bge-reranker-v2-m3"
         logger.info(f"Loading reranker model: {model_name}")
+
+        # Set cache directory for model storage (mapped from host /static-data/team_08/.cache/rag)
+        cache_dir = "/home/app/.cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        logger.info(f"Using cache directory: {cache_dir}")
+
+        # Set environment variables for transformers cache
+        os.environ['TRANSFORMERS_CACHE'] = cache_dir
+        os.environ['HF_HOME'] = cache_dir
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
 
-        reranker_model = CrossEncoder(model_name, device=device)
+        # Load model (cache directory is set via environment variables)
+        reranker_model = CrossEncoder(
+            model_name,
+            device=device
+        )
         logger.info("Reranker model loaded successfully")
 
     except Exception as e:
@@ -175,7 +188,7 @@ async def list_models():
     """List available models endpoint (NIM compatible)."""
     return ModelsResponse(
         object="list",
-        data=[ModelInfo(id="custom-reranker")]
+        data=[ModelInfo(id="BAAI/bge-reranker-v2-m3")]
     )
 
 @app.post("/v1/ranking", response_model=RankingResponse)
