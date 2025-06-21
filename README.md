@@ -10,9 +10,9 @@
 This example deploys a basic RAG pipeline for chat Q&A and serves inferencing from an NVIDIA API Catalog endpoint.
 You do not need a GPU on your machine to run this example.
 
-| Model                    | Embedding                | Framework | Vector Database | File Types   |
-| ------------------------ | ------------------------ | --------- | --------------- | ------------ |
-| meta/llama3-70b-instruct | nvidia/nv-embedqa-e5-v5 | LangChain | Milvus          | TXT, PDF, MD |
+| Model                    | Embedding                | Framework | Vector Database | File Types   | Reranking |
+| ------------------------ | ------------------------ | --------- | --------------- | ------------ | --------- |
+| meta/llama3-70b-instruct | nvidia/nv-embedqa-e5-v5 | LangChain | Milvus          | TXT, PDF, MD | ✅ NV-RerankQA-Mistral-4B |
 
 ## Quick Start
 
@@ -76,12 +76,14 @@ For detailed deployment options and troubleshooting, see [DEPLOYMENT.md](DEPLOYM
 
 ## Architecture
 
-This RAG system uses a modular services architecture with the following components:
+This RAG system uses a modular services architecture with **enhanced reranking capabilities**:
 
 - **Vector Database** (`services/vectordb/`): Milvus for storing and retrieving embeddings
-- **NIM Microservices** (`services/nim-ms/`): NVIDIA NIM for LLM and embedding models
-- **Chain Server** (`services/chain_server/`): FastAPI server handling RAG processing
+- **NIM Microservices** (`services/nim-ms/`): NVIDIA NIM for LLM, embedding, and **reranking** models
+- **Chain Server** (`services/chain_server/`): FastAPI server handling RAG processing with reranking
 - **RAG Playground** (`services/rag_playground/`): Web UI for interaction
+
+📋 **For detailed system architecture, data flows, and deployment diagrams, see [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md)**
 
 ## Next Steps
 
