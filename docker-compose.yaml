@@ -3,6 +3,11 @@ include:
     - services/vectordb/docker-compose.yaml
     - services/nim-ms/docker-compose.yaml
 
+# Activate profiles for local deployment
+profiles:
+  - local-nim
+  - milvus
+
 services:
   chain-server:
     container_name: chain-server
@@ -25,16 +30,16 @@ services:
       APP_VECTORSTORE_URL: "http://milvus:19530"
       # Type of vectordb used to store embedding supported type milvus, pgvector
       APP_VECTORSTORE_NAME: "milvus"
-      # url on which llm model is hosted. If "", Nvidia hosted API is used
-      APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-70b-instruct"}
-      # embedding model engine used for inference, supported type nvidia-ai-endpoints, huggingface
+      # url on which llm model is hosted. For local NIM deployment
+      APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama3-8b-instruct"}
+      # embedding model engine used for inference, using local NIM
       APP_LLM_MODELENGINE: nvidia-ai-endpoints
-      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL:-""}
-      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/nv-embedqa-e5-v5}
-      # embedding model engine used for inference, supported type nvidia-ai-endpoints
+      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL:-"http://nemollm-inference:8000/v1"}
+      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-"nvidia/nv-embedqa-e5-v5"}
+      # embedding model engine used for inference, using local NIM
       APP_EMBEDDINGS_MODELENGINE: ${APP_EMBEDDINGS_MODELENGINE:-nvidia-ai-endpoints}
-      # url on which embedding model is hosted. If "", Nvidia hosted API is used
-      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL:-""}
+      # url on which embedding model is hosted. For local NIM deployment
+      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL:-"http://nemollm-embedding:8000/v1"}
       # text splitter model name, it's fetched from huggingface
       APP_TEXTSPLITTER_MODELNAME: Snowflake/snowflake-arctic-embed-l
       APP_TEXTSPLITTER_CHUNKSIZE: 506

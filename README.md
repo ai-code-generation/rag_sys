@@ -16,19 +16,28 @@ You do not need a GPU on your machine to run this example.
 
 ## Quick Start
 
-1. **Get your NVIDIA API Key** from [https://build.nvidia.com/](https://build.nvidia.com/)
+### Option 1: Easy Configuration (Recommended)
+```bash
+# Run the configuration script
+./configure.sh
 
-2. **Set your API key**:
-   ```bash
-   export NVIDIA_API_KEY="nvapi-your-key-here"
-   ```
+# Follow the prompts to choose deployment mode
+# Script will configure .env and show deployment commands
+```
 
-3. **Deploy the system**:
-   ```bash
-   docker compose up -d --build
-   ```
+### Option 2: Manual Configuration
 
-4. **Access the application**: Open [http://localhost:8090](http://localhost:8090)
+**For Local NIM Deployment (requires GPU):**
+1. Get your NGC API Key from [https://ngc.nvidia.com/](https://ngc.nvidia.com/)
+2. Set your API key: `export NGC_API_KEY="your-ngc-api-key-here"`
+3. Deploy: `docker compose --profile local-nim --profile milvus up -d --build`
+
+**For Cloud API Deployment (no GPU required):**
+1. Get your NVIDIA API Key from [https://build.nvidia.com/](https://build.nvidia.com/)
+2. Set your API key: `export NVIDIA_API_KEY="nvapi-your-key-here"`
+3. Deploy: `docker compose up -d --build`
+
+**Access the application**: Open [http://localhost:8090](http://localhost:8090)
 
 For detailed deployment options and troubleshooting, see [DEPLOYMENT.md](DEPLOYMENT.md).
 

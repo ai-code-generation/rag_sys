@@ -1,44 +1,65 @@
 # RAG System Deployment Guide
 
-## Quick Start (Using NVIDIA AI Endpoints)
+## Quick Start (Local NIM Deployment)
 
-For the fastest setup using NVIDIA's hosted AI endpoints:
+For local deployment with NVIDIA NIM microservices:
 
-1. **Get your NVIDIA API Key**:
-   - Visit [https://build.nvidia.com/](https://build.nvidia.com/)
-   - Sign up/login and get your API key
+1. **Prerequisites**:
+   - NVIDIA GPU with Docker GPU support
+   - NVIDIA Container Toolkit installed
 
-2. **Set your API key**:
+2. **Get your NGC API Key**:
+   - Visit [https://ngc.nvidia.com/](https://ngc.nvidia.com/)
+   - Sign up/login and get your NGC API key
+
+3. **Set your API keys**:
    ```bash
-   export NVIDIA_API_KEY="nvapi-your-key-here"
+   export NGC_API_KEY="your-ngc-api-key-here"
+   export NVIDIA_API_KEY="nvapi-your-key-here"  # Optional fallback
    ```
 
-3. **Deploy the system**:
+4. **Deploy the system**:
    ```bash
-   docker compose up -d --build
+   docker compose --profile local-nim --profile milvus up -d --build
    ```
 
-4. **Access the application**:
+5. **Access the application**:
    - Open [http://localhost:8090](http://localhost:8090) for the RAG Playground
    - Upload documents and start chatting!
+
+## Alternative: Cloud API Deployment
+
+For setup using NVIDIA's hosted AI endpoints (no GPU required):
+
+1. **Get NVIDIA API Key**: Visit [https://build.nvidia.com/](https://build.nvidia.com/)
+2. **Set API key**: `export NVIDIA_API_KEY="nvapi-your-key-here"`
+3. **Deploy**: `docker compose up -d --build` (without profiles)
 
 ## Configuration Options
 
 ### Environment Variables
 
-The system uses a `.env` file for configuration. Key variables:
+The system uses a `.env` file for configuration. Copy `.env.example` to `.env` and update:
 
-#### Required for NVIDIA AI Endpoints:
-- `NVIDIA_API_KEY`: Your NVIDIA API key from build.nvidia.com
+```bash
+cp .env.example .env
+# Edit .env with your API keys and preferences
+```
 
-#### Optional for Local NIM Deployment:
-- `NGC_API_KEY`: Your NGC API key from ngc.nvidia.com
-- `MODEL_DIRECTORY`: Local directory for model storage (leave empty for default)
-- `USERID`: User ID for container permissions (leave empty for default)
+#### For Local NIM Deployment:
+- `NGC_API_KEY`: Your NGC API key from ngc.nvidia.com (REQUIRED)
+- `MODEL_DIRECTORY`: Local directory for model caching (default: ./models)
+- `APP_LLM_SERVERURL`: Local LLM endpoint (default: http://nemollm-inference:8000/v1)
+- `APP_EMBEDDINGS_SERVERURL`: Local embedding endpoint (default: http://nemollm-embedding:8000/v1)
 
-#### Database Configuration:
+#### For Cloud API Deployment:
+- `NVIDIA_API_KEY`: Your NVIDIA API key from build.nvidia.com (REQUIRED)
+- `APP_LLM_SERVERURL`: Leave empty for cloud API
+- `APP_EMBEDDINGS_SERVERURL`: Leave empty for cloud API
+
+#### Database & Service Configuration:
+- `APP_VECTORSTORE_URL`: Vector database endpoint (default: http://milvus:19530)
 - `DOCKER_VOLUME_DIRECTORY`: Directory for persistent storage (default: ./volumes)
-- `POSTGRES_PASSWORD`: PostgreSQL password (default: password)
 - `COLLECTION_NAME`: Vector store collection name (default: nvidia_api_catalog)
 
 ### Deployment Modes
