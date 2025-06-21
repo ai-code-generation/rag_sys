@@ -382,8 +382,13 @@ def get_llm(**kwargs) -> LLM | SimpleChatModel:
         # If server url is set using APP_LLM_SERVERURL, locally hosted NIM is used otherwise Nvidia hosted model are used
         if settings.llm.server_url:
             logger.info(f"Using llm model {settings.llm.model_name} hosted at {settings.llm.server_url}")
+            # Check if the server_url already includes the protocol and /v1 path
+            if settings.llm.server_url.startswith("http"):
+                base_url = settings.llm.server_url
+            else:
+                base_url = f"http://{settings.llm.server_url}/v1"
             return ChatNVIDIA(
-                base_url=f"http://{settings.llm.server_url}/v1",
+                base_url=base_url,
                 temperature=kwargs.get('temperature', None),
                 top_p=kwargs.get('top_p', None),
                 max_tokens=kwargs.get('max_tokens', None),
@@ -434,7 +439,12 @@ def get_embedding_model() -> Embeddings:
             logger.info(
                 f"Using embedding model {settings.embeddings.model_name} hosted at {settings.embeddings.server_url}"
             )
-            return NVIDIAEmbeddings(base_url=f"http://{settings.embeddings.server_url}/v1", truncate="END")
+            # Check if the server_url already includes the protocol and /v1 path
+            if settings.embeddings.server_url.startswith("http"):
+                base_url = settings.embeddings.server_url
+            else:
+                base_url = f"http://{settings.embeddings.server_url}/v1"
+            return NVIDIAEmbeddings(base_url=base_url, truncate="END")
         else:
             logger.info(f"Using embedding model {settings.embeddings.model_name} hosted at api catalog")
             return NVIDIAEmbeddings(model=settings.embeddings.model_name, truncate="END")
@@ -458,8 +468,13 @@ def get_ranking_model() -> BaseDocumentCompressor:
         if settings.ranking.model_engine == "nvidia-ai-endpoints":
             if settings.ranking.server_url:
                 logger.info(f"Using ranking model hosted at {settings.ranking.server_url}")
+                # Check if the server_url already includes the protocol and /v1 path
+                if settings.ranking.server_url.startswith("http"):
+                    base_url = settings.ranking.server_url
+                else:
+                    base_url = f"http://{settings.ranking.server_url}/v1"
                 return NVIDIARerank(
-                    base_url=f"http://{settings.ranking.server_url}/v1", top_n=settings.retriever.top_k, truncate="END"
+                    base_url=base_url, top_n=settings.retriever.top_k, truncate="END"
                 )
             elif settings.ranking.model_name:
                 logger.info(f"Using ranking model {settings.ranking.model_name} hosted at api catalog")
