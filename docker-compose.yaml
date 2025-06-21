@@ -44,6 +44,10 @@ services:
       COLLECTION_NAME: ${COLLECTION_NAME:-nvidia_api_catalog}
       APP_RETRIEVER_TOPK: 4
       APP_RETRIEVER_SCORETHRESHOLD: 0.25
+      # ranking model configuration for reranking
+      APP_RANKING_MODELNAME: ${APP_RANKING_MODELNAME}
+      APP_RANKING_MODELENGINE: ${APP_RANKING_MODELENGINE}
+      APP_RANKING_SERVERURL: ${APP_RANKING_SERVERURL}
       # observability server url
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -61,6 +65,9 @@ services:
         condition: service_healthy
         required: false
       nemollm-inference:
+        condition: service_healthy
+        required: false
+      ranking-ms:
         condition: service_healthy
         required: false
 

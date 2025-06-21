@@ -20,6 +20,7 @@ from typing import Any, Dict, Generator, List
 from langchain_community.document_loaders import UnstructuredFileLoader
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
+from langchain.retrievers import ContextualCompressionRetriever
 
 from chain_server.base import BaseExample
 from chain_server.tracing import langchain_instrumentation_class_wrapper
@@ -31,6 +32,7 @@ from chain_server.utils import (
     get_embedding_model,
     get_llm,
     get_prompts,
+    get_ranking_model,
     get_text_splitter,
     get_vectorstore,
 )
@@ -153,18 +155,67 @@ class NvidiaAPICatalog(BaseExample):
                     logger.info(
                         f"Getting retrieved top k values: {settings.retriever.top_k} with confidence threshold: {settings.retriever.score_threshold}"
                     )
-                    retriever = vs.as_retriever(
+                    base_retriever = vs.as_retriever(
                         search_type="similarity_score_threshold",
                         search_kwargs={
                             "score_threshold": settings.retriever.score_threshold,
                             "k": settings.retriever.top_k,
                         },
                     )
-                    docs = retriever.get_relevant_documents(query, callbacks=[self.cb_handler])
+
+                    # Get more documents for reranking
+                    retriever_for_rerank = vs.as_retriever(
+                        search_type="similarity_score_threshold",
+                        search_kwargs={
+                            "score_threshold": settings.retriever.score_threshold,
+                            "k": settings.retriever.top_k * 2,  # Get more docs for reranking
+                        },
+                    )
+                    initial_docs = retriever_for_rerank.get_relevant_documents(query, callbacks=[self.cb_handler])
+
+                    # Try to get ranking model for reranking
+                    ranking_model = get_ranking_model()
+                    if ranking_model and len(initial_docs) > 0:
+                        logger.info(f"Using ranking model for reranking {len(initial_docs)} retrieved documents")
+                        try:
+                            # Prepare documents for reranking
+                            doc_texts = [doc.page_content for doc in initial_docs]
+
+                            # Use the ranking model to rerank documents
+                            reranked_docs = ranking_model.compress_documents(initial_docs, query)
+                            docs = reranked_docs[:settings.retriever.top_k]  # Take top k after reranking
+                            logger.info(f"Successfully reranked documents, using top {len(docs)} results")
+                        except Exception as e:
+                            logger.error(f"Failed to rerank documents: {e}")
+                            logger.info("Falling back to original retrieval results")
+                            docs = initial_docs[:settings.retriever.top_k]
+                    else:
+                        logger.info("No ranking model available or no documents to rerank, using base retrieval")
+                        docs = initial_docs[:settings.retriever.top_k]
                 except NotImplementedError:
                     # Some retriever like milvus don't have similarity score threshold implemented
-                    retriever = vs.as_retriever()
-                    docs = retriever.get_relevant_documents(query, callbacks=[self.cb_handler])
+                    base_retriever = vs.as_retriever()
+
+                    # Get more documents for reranking
+                    retriever_for_rerank = vs.as_retriever()
+                    initial_docs = retriever_for_rerank.get_relevant_documents(query, callbacks=[self.cb_handler])
+
+                    # Try to get ranking model for reranking
+                    ranking_model = get_ranking_model()
+                    if ranking_model and len(initial_docs) > 0:
+                        logger.info(f"Using ranking model for reranking {len(initial_docs)} retrieved documents")
+                        try:
+                            # Use the ranking model to rerank documents
+                            reranked_docs = ranking_model.compress_documents(initial_docs, query)
+                            docs = reranked_docs[:settings.retriever.top_k]  # Take top k after reranking
+                            logger.info(f"Successfully reranked documents, using top {len(docs)} results")
+                        except Exception as e:
+                            logger.error(f"Failed to rerank documents: {e}")
+                            logger.info("Falling back to original retrieval results")
+                            docs = initial_docs[:settings.retriever.top_k]
+                    else:
+                        logger.info("No ranking model available or no documents to rerank, using base retrieval")
+                        docs = initial_docs[:settings.retriever.top_k]
 
                 logger.debug(f"Retrieved documents are: {docs}")
                 if not docs:
@@ -204,15 +255,58 @@ class NvidiaAPICatalog(BaseExample):
             vs = get_vectorstore(vectorstore, document_embedder)
             if vs != None:
                 try:
-                    retriever = vs.as_retriever(
+                    base_retriever = vs.as_retriever(
                         search_type="similarity_score_threshold",
                         search_kwargs={"score_threshold": settings.retriever.score_threshold, "k": num_docs},
                     )
-                    docs = retriever.get_relevant_documents(content, callbacks=[self.cb_handler])
+
+                    # Get more documents for reranking
+                    retriever_for_rerank = vs.as_retriever(
+                        search_type="similarity_score_threshold",
+                        search_kwargs={"score_threshold": settings.retriever.score_threshold, "k": num_docs * 2},
+                    )
+                    initial_docs = retriever_for_rerank.get_relevant_documents(content, callbacks=[self.cb_handler])
+
+                    # Try to get ranking model for reranking
+                    ranking_model = get_ranking_model()
+                    if ranking_model and len(initial_docs) > 0:
+                        logger.info(f"Using ranking model for reranking {len(initial_docs)} search results")
+                        try:
+                            # Use the ranking model to rerank documents
+                            reranked_docs = ranking_model.compress_documents(initial_docs, content)
+                            docs = reranked_docs[:num_docs]  # Take top k after reranking
+                            logger.info(f"Successfully reranked documents, using top {len(docs)} results")
+                        except Exception as e:
+                            logger.error(f"Failed to rerank documents: {e}")
+                            logger.info("Falling back to original search results")
+                            docs = initial_docs[:num_docs]
+                    else:
+                        logger.info("No ranking model available or no documents to rerank, using base search")
+                        docs = initial_docs[:num_docs]
                 except NotImplementedError:
                     # Some retriever like milvus don't have similarity score threshold implemented
-                    retriever = vs.as_retriever()
-                    docs = retriever.get_relevant_documents(content, callbacks=[self.cb_handler])
+                    base_retriever = vs.as_retriever()
+
+                    # Get more documents for reranking
+                    retriever_for_rerank = vs.as_retriever()
+                    initial_docs = retriever_for_rerank.get_relevant_documents(content, callbacks=[self.cb_handler])
+
+                    # Try to get ranking model for reranking
+                    ranking_model = get_ranking_model()
+                    if ranking_model and len(initial_docs) > 0:
+                        logger.info(f"Using ranking model for reranking {len(initial_docs)} search results")
+                        try:
+                            # Use the ranking model to rerank documents
+                            reranked_docs = ranking_model.compress_documents(initial_docs, content)
+                            docs = reranked_docs[:num_docs]  # Take top k after reranking
+                            logger.info(f"Successfully reranked documents, using top {len(docs)} results")
+                        except Exception as e:
+                            logger.error(f"Failed to rerank documents: {e}")
+                            logger.info("Falling back to original search results")
+                            docs = initial_docs[:num_docs]
+                    else:
+                        logger.info("No ranking model available or no documents to rerank, using base search")
+                        docs = initial_docs[:num_docs]
 
                 result = []
                 for doc in docs:
