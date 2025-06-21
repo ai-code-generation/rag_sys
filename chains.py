@@ -64,7 +64,9 @@ class NvidiaAPICatalog(BaseExample):
         Raises:
             ValueError: If there's an error during document ingestion or the file format is not supported.
         """
-        if not filename.endswith((".txt", ".pdf", ".md")):
+        # Make file extension validation case-insensitive
+        filename_lower = filename.lower()
+        if not filename_lower.endswith((".txt", ".pdf", ".md")):
             raise ValueError(f"{filename} is not a valid Text, PDF or Markdown file")
         try:
             # Load raw documents from the directory

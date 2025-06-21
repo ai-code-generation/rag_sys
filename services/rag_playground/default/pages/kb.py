@@ -36,7 +36,7 @@ def build_page(client: chat_client.ChatClient) -> gr.Blocks:
         gr.Markdown(f"# {TITLE}")
 
         with gr.Row():
-            upload_button = gr.UploadButton("Add File", file_types=["pdf"], file_count="multiple")
+            upload_button = gr.UploadButton("Add File", file_types=[".pdf", ".txt", ".md"], file_count="multiple")
         with gr.Row():
             file_output = gr.File()
 
@@ -93,6 +93,7 @@ def upload_file(files: List[Path], client: chat_client.ChatClient) -> List[str]:
     """Use the client to upload a file to the knowledge base."""
     try:
         file_paths = [file.name for file in files]
+        print(f"Attempting to upload files: {file_paths}")  # Debug logging
         client.upload_documents(file_paths=file_paths)
 
         # Save the uploaded file names to the state file
@@ -103,7 +104,8 @@ def upload_file(files: List[Path], client: chat_client.ChatClient) -> List[str]:
 
         return file_paths
     except Exception as e:
-        raise gr.Error(f"{e}")
+        print(f"Upload error: {e}")  # Debug logging
+        raise gr.Error(f"Upload failed: {e}")
 
 
 def get_uploaded_files(client: chat_client.ChatClient) -> List[str]:
