@@ -41,6 +41,13 @@ class RankingResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "healthy"
 
+class ModelInfo(BaseModel):
+    id: str
+
+class ModelsResponse(BaseModel):
+    object: str = "list"
+    data: List[ModelInfo]
+
 # Global model instance
 reranker_model = None
 
@@ -163,6 +170,14 @@ async def health_ready():
         raise HTTPException(status_code=503, detail="Model not ready")
     return HealthResponse(status="ready")
 
+@app.get("/v1/models", response_model=ModelsResponse)
+async def list_models():
+    """List available models endpoint (NIM compatible)."""
+    return ModelsResponse(
+        object="list",
+        data=[ModelInfo(id="custom-reranker")]
+    )
+
 @app.post("/v1/ranking", response_model=RankingResponse)
 async def rank_passages(request: RankingRequest):
     """
@@ -214,7 +229,8 @@ async def root():
         "description": "A custom reranking service compatible with NVIDIA NIM reranking API",
         "endpoints": {
             "health": "/health",
-            "ready": "/v1/health/ready", 
+            "ready": "/v1/health/ready",
+            "models": "/v1/models",
             "ranking": "/v1/ranking"
         }
     }

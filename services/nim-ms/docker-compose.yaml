@@ -79,7 +79,7 @@ services:
             - driver: nvidia
               device_ids: ['${RANKING_MS_GPU_ID:-0}']
               capabilities: [gpu]
-    profiles: ["nemo-retriever"]  # Keep this disabled by default (optional service)
+    # profiles: ["nemo-retriever"]  # Enabled by default for enhanced RAG performance
 
 networks:
   default:

@@ -1,9 +1,7 @@
 services:
   custom-reranking:
     container_name: custom-reranking-service
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: custom-reranking-service
     ports:
       - "8765:8000"  # Custom reranking service port
     expose:
@@ -39,4 +37,3 @@ volumes:
 networks:
   default:
     name: nvidia-rag
-    external: true

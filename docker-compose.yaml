@@ -2,6 +2,7 @@ include:
   - path:
     - services/vectordb/docker-compose.yaml
     - services/nim-ms/docker-compose.yaml
+    - services/reranking/docker-compose.yaml
 
 services:
   chain-server:
@@ -67,7 +68,7 @@ services:
       nemollm-inference:
         condition: service_healthy
         required: false
-      ranking-ms:
+      custom-reranking:
         condition: service_healthy
         required: false
 
