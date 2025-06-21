@@ -3,11 +3,6 @@ include:
     - services/vectordb/docker-compose.yaml
     - services/nim-ms/docker-compose.yaml
 
-# Activate profiles for local deployment
-profiles:
-  - local-nim
-  - milvus
-
 services:
   chain-server:
     container_name: chain-server

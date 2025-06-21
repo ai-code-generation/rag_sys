@@ -25,7 +25,7 @@ services:
       interval: 10s
       timeout: 20s
       retries: 100
-    profiles: ["local-nim", "nemo-retriever"]
+    # profiles: ["local-nim", "nemo-retriever"]  # Removed to enable by default
 
   nemollm-embedding:
     container_name: nemo-retriever-embedding-microservice
@@ -53,7 +53,7 @@ services:
       timeout: 20s
       retries: 3
       start_period: 10m
-    profiles: ["local-nim", "nemo-retriever"]
+    # profiles: ["local-nim", "nemo-retriever"]  # Removed to enable by default
 
   ranking-ms:
     container_name: nemo-retriever-ranking-microservice
@@ -79,7 +79,7 @@ services:
             - driver: nvidia
               device_ids: ['${RANKING_MS_GPU_ID:-0}']
               capabilities: [gpu]
-    profiles: ["nemo-retriever"]
+    profiles: ["nemo-retriever"]  # Keep this disabled by default (optional service)
 
 networks:
   default:

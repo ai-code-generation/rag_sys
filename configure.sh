@@ -44,7 +44,7 @@ case $choice in
         echo "✅ Configured for local NIM deployment"
         echo ""
         echo "🚀 To deploy, run:"
-        echo "docker compose --profile local-nim --profile milvus up -d --build"
+        echo "docker compose up -d --build"
         ;;
         
     2)

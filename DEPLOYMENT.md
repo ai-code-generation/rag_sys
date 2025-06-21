@@ -20,7 +20,7 @@ For local deployment with NVIDIA NIM microservices:
 
 4. **Deploy the system**:
    ```bash
-   docker compose --profile local-nim --profile milvus up -d --build
+   docker compose up -d --build
    ```
 
 5. **Access the application**:

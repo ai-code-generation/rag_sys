@@ -31,7 +31,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    profiles: ["nemo-retriever", "milvus", ""]
+    # profiles: ["nemo-retriever", "milvus", ""]  # Removed to enable by default
 
   minio:
     container_name: milvus-minio
@@ -50,7 +50,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    profiles: ["nemo-retriever", "milvus", ""]
+    # profiles: ["nemo-retriever", "milvus", ""]  # Removed to enable by default
 
   milvus:
     container_name: milvus-standalone
@@ -81,7 +81,7 @@ services:
             - driver: nvidia
               capabilities: ["gpu"]
               device_ids: ['${VECTORSTORE_GPU_DEVICE_ID:-0}']
-    profiles: ["nemo-retriever", "milvus", ""]
+    # profiles: ["nemo-retriever", "milvus", ""]  # Removed to enable by default
 
   elasticsearch:
     image: "docker.elastic.co/elasticsearch/elasticsearch:8.12.2"
