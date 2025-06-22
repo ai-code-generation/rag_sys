@@ -30,3 +30,6 @@ bleach==6.1.0
 flatdict==4.0.1
 chardet==5.2.0
 nltk==3.8.1
+tree-sitter==0.20.4
+tree-sitter-languages==1.10.2
+langchain-text-splitters==0.0.1

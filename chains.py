@@ -17,7 +17,10 @@ import logging
 import os
 from typing import Any, Dict, Generator, List
 
-from langchain_community.document_loaders import UnstructuredFileLoader
+from langchain_community.document_loaders import UnstructuredFileLoader, TextLoader
+from langchain_community.document_loaders.generic import GenericLoader
+from langchain_community.document_loaders.parsers import LanguageParser
+from langchain_text_splitters import Language
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain.retrievers import ContextualCompressionRetriever
@@ -66,12 +69,27 @@ class NvidiaAPICatalog(BaseExample):
         """
         # Make file extension validation case-insensitive
         filename_lower = filename.lower()
-        if not filename_lower.endswith((".txt", ".pdf", ".md")):
-            raise ValueError(f"{filename} is not a valid Text, PDF or Markdown file")
+        if not filename_lower.endswith((".txt", ".pdf", ".md", ".java", ".yaml", ".yml")):
+            raise ValueError(f"{filename} is not a valid Text, PDF, Markdown, Java, or YAML file")
         try:
             # Load raw documents from the directory
             _path = filepath
-            raw_documents = UnstructuredFileLoader(_path).load()
+
+            # Use specialized loaders based on file type
+            if filename_lower.endswith(".java"):
+                # Use LanguageParser for Java source code files
+                loader = GenericLoader.from_filesystem(
+                    path=os.path.dirname(_path),
+                    glob=os.path.basename(_path),
+                    parser=LanguageParser(language=Language.JAVA)
+                )
+                raw_documents = loader.load()
+            elif filename_lower.endswith((".yaml", ".yml")):
+                # Use TextLoader for YAML files to preserve structure and formatting
+                raw_documents = TextLoader(_path, encoding='utf-8').load()
+            else:
+                # Use UnstructuredFileLoader for other file types (PDF, TXT, MD)
+                raw_documents = UnstructuredFileLoader(_path).load()
 
             if raw_documents:
                 global text_splitter
