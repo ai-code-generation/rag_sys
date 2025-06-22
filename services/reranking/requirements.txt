@@ -8,3 +8,4 @@ huggingface_hub>=0.16.0,<1.0.0
 numpy>=1.21.0
 scikit-learn>=1.0.0
 requests>=2.25.0
+tokenizers>=0.13.0
