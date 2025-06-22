@@ -1,7 +1,11 @@
 services:
-  custom-reranking:
-    container_name: custom-reranking-service
-    image: custom-reranking-service
+  reranking:
+    container_name: reranking-service
+    image: reranking-service:${TAG:-latest}
+    build:
+      # Set context to reranking service directory (relative to this file's location)
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8765:8000"  # Custom reranking service port
     expose:
@@ -29,8 +33,6 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
     restart: unless-stopped
-
-
 
 networks:
   default:

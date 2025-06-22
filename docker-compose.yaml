@@ -68,7 +68,7 @@ services:
       nemollm-inference:
         condition: service_healthy
         required: false
-      custom-reranking:
+      reranking:
         condition: service_healthy
         required: false
 
