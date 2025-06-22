@@ -3,9 +3,9 @@ services:
     container_name: reranking-service
     image: reranking-service:${TAG:-latest}
     build:
-      # Set context to reranking service directory (relative to this file's location)
-      context: .
-      dockerfile: Dockerfile
+      # Set context to root directory (like chain-server)
+      context: ../../
+      dockerfile: services/reranking/Dockerfile
     ports:
       - "8765:8000"  # Custom reranking service port
     expose:
