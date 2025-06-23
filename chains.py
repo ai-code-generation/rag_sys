@@ -15,12 +15,14 @@
 
 import logging
 import os
+import yaml
 from typing import Any, Dict, Generator, List
 
 from langchain_community.document_loaders import UnstructuredFileLoader, TextLoader
 from langchain_community.document_loaders.generic import GenericLoader
 from langchain_community.document_loaders.parsers import LanguageParser
 from langchain_text_splitters import Language
+from langchain_core.documents import Document
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain.retrievers import ContextualCompressionRetriever
@@ -54,6 +56,356 @@ except Exception as e:
     logger.info(f"Unable to connect to vector store during initialization: {e}")
 
 
+def load_yaml_structured(file_path: str) -> List[Document]:
+    """
+    Load YAML file with structured parsing to better handle hierarchical data.
+
+    Args:
+        file_path (str): Path to the YAML file
+
+    Returns:
+        List[Document]: List of documents with structured content
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            yaml_content = yaml.safe_load(file)
+
+        # Convert YAML content to structured text representation
+        if yaml_content is None:
+            structured_content = "Empty YAML file"
+        elif isinstance(yaml_content, dict):
+            # For dictionary YAML, create a structured representation
+            structured_content = _format_yaml_dict(yaml_content)
+        elif isinstance(yaml_content, list):
+            # For list YAML, create a structured representation
+            structured_content = _format_yaml_list(yaml_content)
+        else:
+            # For simple values, convert to string
+            structured_content = str(yaml_content)
+
+        # Create document with enhanced metadata
+        metadata = {
+            "source": file_path,
+            "file_type": "yaml",
+            "yaml_structure": type(yaml_content).__name__,
+            "has_nested_structure": _has_nested_structure(yaml_content)
+        }
+
+        # Extract semantic metadata from YAML content
+        semantic_metadata = _extract_semantic_metadata(yaml_content, file_path)
+        metadata.update(semantic_metadata)
+
+        return [Document(page_content=structured_content, metadata=metadata)]
+
+    except yaml.YAMLError as e:
+        logger.warning(f"Failed to parse YAML file {file_path}: {e}. Falling back to TextLoader.")
+        # Fallback to TextLoader if YAML parsing fails
+        return TextLoader(file_path, encoding='utf-8').load()
+    except Exception as e:
+        logger.error(f"Error loading YAML file {file_path}: {e}")
+        raise
+
+
+def _format_yaml_dict(data: dict, indent: int = 0) -> str:
+    """Format dictionary data into a structured text representation."""
+    lines = []
+    prefix = "  " * indent
+
+    for key, value in data.items():
+        if isinstance(value, dict):
+            lines.append(f"{prefix}{key}:")
+            lines.append(_format_yaml_dict(value, indent + 1))
+        elif isinstance(value, list):
+            lines.append(f"{prefix}{key}:")
+            lines.append(_format_yaml_list(value, indent + 1))
+        else:
+            lines.append(f"{prefix}{key}: {value}")
+
+    return "\n".join(lines)
+
+
+def _format_yaml_list(data: list, indent: int = 0) -> str:
+    """Format list data into a structured text representation."""
+    lines = []
+    prefix = "  " * indent
+
+    for i, item in enumerate(data):
+        if isinstance(item, dict):
+            lines.append(f"{prefix}- Item {i + 1}:")
+            lines.append(_format_yaml_dict(item, indent + 1))
+        elif isinstance(item, list):
+            lines.append(f"{prefix}- List {i + 1}:")
+            lines.append(_format_yaml_list(item, indent + 1))
+        else:
+            lines.append(f"{prefix}- {item}")
+
+    return "\n".join(lines)
+
+
+def _has_nested_structure(data: Any) -> bool:
+    """Check if YAML data has nested structures (dicts or lists)."""
+    if isinstance(data, dict):
+        return any(isinstance(v, (dict, list)) for v in data.values())
+    elif isinstance(data, list):
+        return any(isinstance(item, (dict, list)) for item in data)
+    return False
+
+
+def _extract_semantic_metadata(yaml_content: Any, file_path: str) -> Dict[str, Any]:
+    """
+    Extract semantic metadata from YAML content for enhanced RAG retrieval.
+    Uses generic patterns to work with various YAML file types.
+
+    Args:
+        yaml_content: Parsed YAML content
+        file_path: Path to the YAML file
+
+    Returns:
+        Dict containing semantic metadata
+    """
+    metadata = {}
+
+    try:
+        # Basic structure analysis
+        if isinstance(yaml_content, list):
+            metadata["yaml_items_count"] = len(yaml_content)
+            metadata["yaml_type"] = "array"
+        elif isinstance(yaml_content, dict):
+            metadata["yaml_type"] = "object"
+            metadata["top_level_keys"] = list(yaml_content.keys())[:10]  # Limit to first 10 keys
+        else:
+            metadata["yaml_type"] = "scalar"
+
+        # Generic key-value extraction
+        all_keys = set()
+        all_values = []
+
+        def extract_from_structure(data, depth=0):
+            """Recursively extract keys and values from nested structures."""
+            if depth > 5:  # Prevent infinite recursion
+                return
+
+            if isinstance(data, dict):
+                all_keys.update(data.keys())
+                for key, value in data.items():
+                    if isinstance(value, str) and len(value) < 100:  # Reasonable string values
+                        all_values.append(value)
+                    elif isinstance(value, (dict, list)):
+                        extract_from_structure(value, depth + 1)
+                    elif isinstance(value, (int, float, bool)):
+                        all_values.append(str(value))
+
+            elif isinstance(data, list):
+                for item in data:
+                    extract_from_structure(item, depth + 1)
+
+        extract_from_structure(yaml_content)
+
+        # Categorize common key patterns
+        key_categories = _categorize_keys(all_keys)
+        if key_categories:
+            metadata["key_categories"] = key_categories
+
+        # Extract common metadata patterns
+        common_metadata = _extract_common_patterns(yaml_content)
+        metadata.update(common_metadata)
+
+        # Analyze content themes
+        content_themes = _analyze_content_themes(file_path, all_values)
+        if content_themes:
+            metadata["content_themes"] = content_themes
+
+        # Add structural complexity
+        metadata["structural_complexity"] = _assess_structural_complexity(yaml_content)
+
+        # Add file-based metadata
+        filename = os.path.basename(file_path)
+        metadata["filename"] = filename
+        metadata["file_category"] = _categorize_filename(filename)
+
+    except Exception as e:
+        logger.warning(f"Failed to extract semantic metadata from {file_path}: {e}")
+
+    return metadata
+
+
+def _categorize_keys(keys: set) -> Dict[str, List[str]]:
+    """Categorize YAML keys into common patterns."""
+    categories = {
+        "configuration": [],
+        "metadata": [],
+        "workflow": [],
+        "data": [],
+        "api": [],
+        "deployment": [],
+        "other": []
+    }
+
+    # Define key patterns for different categories
+    patterns = {
+        "configuration": ["config", "settings", "options", "parameters", "env", "environment"],
+        "metadata": ["id", "name", "title", "description", "version", "author", "created", "modified"],
+        "workflow": ["steps", "tasks", "jobs", "pipeline", "stage", "action", "workflow"],
+        "data": ["data", "items", "records", "entries", "list", "array", "table"],
+        "api": ["endpoint", "url", "method", "headers", "response", "request", "api"],
+        "deployment": ["deploy", "build", "docker", "kubernetes", "service", "port", "host"]
+    }
+
+    for key in keys:
+        key_lower = str(key).lower()
+        categorized = False
+
+        for category, pattern_list in patterns.items():
+            if any(pattern in key_lower for pattern in pattern_list):
+                categories[category].append(str(key))
+                categorized = True
+                break
+
+        if not categorized:
+            categories["other"].append(str(key))
+
+    # Remove empty categories
+    return {k: v for k, v in categories.items() if v}
+
+
+def _extract_common_patterns(yaml_content: Any) -> Dict[str, Any]:
+    """Extract common metadata patterns from YAML content."""
+    metadata = {}
+
+    def search_in_structure(data, path=""):
+        """Search for common patterns in nested structures."""
+        if isinstance(data, dict):
+            # Look for common metadata fields
+            for key, value in data.items():
+                key_lower = str(key).lower()
+
+                # Version information
+                if key_lower in ["version", "ver", "v"]:
+                    metadata.setdefault("versions", []).append(str(value))
+
+                # Environment information
+                elif key_lower in ["environment", "env", "stage"]:
+                    metadata.setdefault("environments", []).append(str(value))
+
+                # Service/application names
+                elif key_lower in ["name", "service", "app", "application"]:
+                    metadata.setdefault("services", []).append(str(value))
+
+                # Tags or labels
+                elif key_lower in ["tags", "labels", "categories"]:
+                    if isinstance(value, list):
+                        metadata.setdefault("tags", []).extend([str(v) for v in value])
+                    else:
+                        metadata.setdefault("tags", []).append(str(value))
+
+                # Ports
+                elif key_lower in ["port", "ports"] and isinstance(value, (int, str)):
+                    metadata.setdefault("ports", []).append(str(value))
+
+                # Recursively search nested structures
+                if isinstance(value, (dict, list)):
+                    search_in_structure(value, f"{path}.{key}" if path else key)
+
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                search_in_structure(item, f"{path}[{i}]" if path else f"[{i}]")
+
+    search_in_structure(yaml_content)
+
+    # Deduplicate and limit lists
+    for key in metadata:
+        if isinstance(metadata[key], list):
+            metadata[key] = list(set(metadata[key]))[:10]  # Limit to 10 items
+
+    return metadata
+
+
+def _analyze_content_themes(file_path: str, values: List[str]) -> List[str]:
+    """Analyze content to identify themes and technologies."""
+    themes = set()
+
+    # Combine file content analysis
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read().lower()
+
+        # General technology patterns
+        tech_patterns = {
+            "docker": ["docker", "dockerfile", "container"],
+            "kubernetes": ["kubernetes", "k8s", "kubectl", "pod", "deployment"],
+            "database": ["database", "db", "sql", "mysql", "postgres", "mongodb"],
+            "web": ["http", "https", "api", "rest", "web", "server"],
+            "cloud": ["aws", "azure", "gcp", "cloud", "s3", "ec2"],
+            "ci_cd": ["ci", "cd", "pipeline", "build", "deploy", "jenkins", "github"],
+            "monitoring": ["monitor", "log", "metric", "alert", "prometheus"],
+            "security": ["auth", "token", "ssl", "tls", "certificate", "security"]
+        }
+
+        for theme, keywords in tech_patterns.items():
+            if any(keyword in content for keyword in keywords):
+                themes.add(theme)
+
+    except Exception:
+        pass
+
+    # Analyze values for additional themes
+    value_text = " ".join(values).lower()
+    for theme, keywords in tech_patterns.items():
+        if any(keyword in value_text for keyword in keywords):
+            themes.add(theme)
+
+    return sorted(list(themes))
+
+
+def _assess_structural_complexity(data: Any, depth: int = 0) -> str:
+    """Assess the structural complexity of YAML content."""
+    if depth > 6:
+        return "very_high"
+
+    complexity_score = 0
+
+    if isinstance(data, dict):
+        complexity_score += len(data)
+        for value in data.values():
+            if isinstance(value, (dict, list)):
+                child_complexity = _assess_structural_complexity(value, depth + 1)
+                complexity_score += {"low": 1, "medium": 2, "high": 3, "very_high": 4}.get(child_complexity, 0)
+
+    elif isinstance(data, list):
+        complexity_score += len(data)
+        for item in data:
+            if isinstance(item, (dict, list)):
+                child_complexity = _assess_structural_complexity(item, depth + 1)
+                complexity_score += {"low": 1, "medium": 2, "high": 3, "very_high": 4}.get(child_complexity, 0)
+
+    if complexity_score > 50:
+        return "very_high"
+    elif complexity_score > 20:
+        return "high"
+    elif complexity_score > 5:
+        return "medium"
+    else:
+        return "low"
+
+
+def _categorize_filename(filename: str) -> str:
+    """Categorize file based on filename patterns."""
+    filename_lower = filename.lower()
+
+    if any(word in filename_lower for word in ["config", "configuration", "settings"]):
+        return "configuration"
+    elif any(word in filename_lower for word in ["docker", "compose"]):
+        return "deployment"
+    elif any(word in filename_lower for word in ["test", "spec"]):
+        return "testing"
+    elif any(word in filename_lower for word in ["data", "schema", "model"]):
+        return "data"
+    elif any(word in filename_lower for word in ["workflow", "pipeline", "ci", "cd"]):
+        return "workflow"
+    else:
+        return "general"
+
+
 @langchain_instrumentation_class_wrapper
 class NvidiaAPICatalog(BaseExample):
     def ingest_docs(self, filepath: str, filename: str) -> None:
@@ -85,8 +437,10 @@ class NvidiaAPICatalog(BaseExample):
                 )
                 raw_documents = loader.load()
             elif filename_lower.endswith((".yaml", ".yml")):
-                # Use TextLoader for YAML files to preserve structure and formatting
-                raw_documents = TextLoader(_path, encoding='utf-8').load()
+                # Use structured YAML loader for better parsing of hierarchical data
+                # Alternative: You can also use UnstructuredFileLoader for simpler approach
+                # raw_documents = UnstructuredFileLoader(_path).load()
+                raw_documents = load_yaml_structured(_path)
             else:
                 # Use UnstructuredFileLoader for other file types (PDF, TXT, MD)
                 raw_documents = UnstructuredFileLoader(_path).load()
