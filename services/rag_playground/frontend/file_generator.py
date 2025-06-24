@@ -183,9 +183,15 @@ class FileGenerator:
             # Determine file extension based on most common language or use .txt
             language_counts = {}
             for block in code_blocks:
-                if block.language:
+                detected_language = block.language
+
+                # If no language tag, try to detect from content
+                if not detected_language or detected_language.lower() in ['none', 'text', '']:
+                    detected_language = self._detect_language_from_content(block.content)
+
+                if detected_language:
                     # Normalize language name for better detection
-                    normalized_lang = self._normalize_language_name(block.language)
+                    normalized_lang = self._normalize_language_name(detected_language)
                     language_counts[normalized_lang] = language_counts.get(normalized_lang, 0) + 1
 
             if language_counts:
@@ -319,6 +325,124 @@ class FileGenerator:
         }
 
         return language_mappings.get(lang_lower, lang_lower)
+
+    def _detect_language_from_content(self, content: str) -> Optional[str]:
+        """
+        Detect programming language from code content using patterns.
+
+        Args:
+            content: The code content to analyze
+
+        Returns:
+            Detected language name or None
+        """
+        if not content or not content.strip():
+            return None
+
+        content_lower = content.lower().strip()
+
+        # Python patterns (more comprehensive)
+        python_patterns = [
+            'def ', 'import ', 'from ', 'print(', 'if __name__', 'elif ',
+            'class ', 'self.', 'self,', 'return ', 'input(', 'len(', 'range(',
+            'for ', 'while ', 'try:', 'except:', 'finally:', 'with ', 'lambda ',
+            'True', 'False', 'None', '__init__', '__str__', '__repr__',
+            # More basic patterns
+            ' = ', '==', '!=', 'and ', 'or ', 'not ', 'in ', 'is ', 'if ',
+            'else:', 'elif:', 'pass', 'break', 'continue', 'yield', 'assert'
+        ]
+
+        # Java patterns
+        java_patterns = [
+            'public class', 'private ', 'public static void main', 'System.out.print',
+            'import java.', 'public static', 'private static', '// '
+        ]
+
+        # JavaScript patterns
+        js_patterns = [
+            'function ', 'var ', 'let ', 'const ', 'console.log', 'document.',
+            'window.', '=>', 'async ', 'await ', 'require(', 'module.exports'
+        ]
+
+        # HTML patterns
+        html_patterns = [
+            '<!doctype', '<html', '<head>', '<body>', '<div', '<span', '<p>',
+            '</html>', '</head>', '</body>', '</div>', '</span>', '</p>'
+        ]
+
+        # CSS patterns (more specific to avoid false positives)
+        css_patterns = [
+            '{', '}', 'color:', 'background:', 'margin:', 'padding:',
+            'font-', 'border:', 'width:', 'height:', '@media', 'px', 'em',
+            'display:', 'position:', 'float:', 'clear:', 'overflow:', 'z-index:'
+        ]
+
+        # SQL patterns
+        sql_patterns = [
+            'select ', 'from ', 'where ', 'insert into', 'update ', 'delete from',
+            'create table', 'alter table', 'drop table', 'join ', 'group by', 'order by'
+        ]
+
+        # Shell/Bash patterns
+        shell_patterns = [
+            '#!/bin/bash', '#!/bin/sh', 'echo ', 'cd ', 'ls ', 'grep ', 'awk ',
+            'sed ', 'chmod ', 'chown ', '$1', '$2', '${', 'export '
+        ]
+
+        # Count pattern matches for each language
+        scores = {}
+
+        # Python
+        python_score = sum(1 for pattern in python_patterns if pattern in content_lower)
+        if python_score > 0:
+            scores['python'] = python_score
+
+        # Java
+        java_score = sum(1 for pattern in java_patterns if pattern in content_lower)
+        if java_score > 0:
+            scores['java'] = java_score
+
+        # JavaScript
+        js_score = sum(1 for pattern in js_patterns if pattern in content_lower)
+        if js_score > 0:
+            scores['javascript'] = js_score
+
+        # HTML
+        html_score = sum(1 for pattern in html_patterns if pattern in content_lower)
+        if html_score > 0:
+            scores['html'] = html_score
+
+        # CSS (only if not HTML and has strong CSS indicators)
+        if html_score == 0:  # Don't detect CSS if HTML is present
+            css_score = sum(1 for pattern in css_patterns if pattern in content_lower)
+            # Require both braces and CSS properties for CSS detection
+            has_braces = '{' in content_lower and '}' in content_lower
+            has_css_properties = any(prop in content_lower for prop in ['color:', 'background:', 'margin:', 'padding:', 'font-', 'border:'])
+            if css_score > 2 and has_braces and has_css_properties:
+                scores['css'] = css_score
+
+        # SQL
+        sql_score = sum(1 for pattern in sql_patterns if pattern in content_lower)
+        if sql_score > 0:
+            scores['sql'] = sql_score
+
+        # Shell
+        shell_score = sum(1 for pattern in shell_patterns if pattern in content_lower)
+        if shell_score > 0:
+            scores['shell'] = shell_score
+
+        # Return the language with the highest score
+        if scores:
+            detected_language = max(scores, key=scores.get)
+            max_score = scores[detected_language]
+
+            # Only return if we have a reasonable confidence
+            # Lower threshold for Python since it's commonly requested
+            min_threshold = 1 if detected_language == 'python' else 2
+            if max_score >= min_threshold:
+                return detected_language
+
+        return None
 
 
 
