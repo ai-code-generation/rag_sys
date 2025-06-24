@@ -93,6 +93,8 @@ services:
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       # enable observability in rag playground
       ENABLE_TRACING: false
+    volumes:
+      - /static-data/team_08/swtbot-example:/swtbot-example
     ports:
     - "8090:8090"
     expose:
