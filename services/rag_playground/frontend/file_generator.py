@@ -184,7 +184,9 @@ class FileGenerator:
             language_counts = {}
             for block in code_blocks:
                 if block.language:
-                    language_counts[block.language] = language_counts.get(block.language, 0) + 1
+                    # Normalize language name for better detection
+                    normalized_lang = self._normalize_language_name(block.language)
+                    language_counts[normalized_lang] = language_counts.get(normalized_lang, 0) + 1
 
             if language_counts:
                 # Use the most common language for file extension
@@ -196,31 +198,20 @@ class FileGenerator:
 
             filepath = os.path.join(self.temp_dir, filename)
 
-            # Create combined content with raw code only
+            # Create combined content with raw code only (no comments)
             combined_content = []
 
-            # Add header comment with metadata
-            comment_prefix = self._get_comment_prefix(most_common_language if language_counts else None)
-            combined_content.append(f"{comment_prefix} Extracted Code Blocks\n")
-            combined_content.append(f"{comment_prefix} Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            combined_content.append(f"{comment_prefix} Total blocks: {len(code_blocks)}\n")
-            combined_content.append(f"{comment_prefix} Languages: {', '.join(language_counts.keys()) if language_counts else 'unknown'}\n\n")
-
             for i, code_block in enumerate(code_blocks, 1):
-                # Add section header as comment
-                language_info = f" ({code_block.language})" if code_block.language else ""
-                combined_content.append(f"{comment_prefix} ===== Code Block {i}{language_info} =====\n")
-
-                # Add the raw code content
+                # Add the raw code content directly
                 combined_content.append(code_block.content)
 
                 # Ensure proper line ending
                 if not code_block.content.endswith('\n'):
                     combined_content.append('\n')
 
-                # Add separator between blocks
+                # Add blank line separator between blocks (only if multiple blocks)
                 if i < len(code_blocks):
-                    combined_content.append(f"\n{comment_prefix} " + "="*50 + "\n\n")
+                    combined_content.append('\n')
 
             # Write combined content to file
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -241,44 +232,95 @@ class FileGenerator:
             _LOGGER.error(f"Error creating combined file: {e}")
             return None
 
-    def _get_comment_prefix(self, language: Optional[str]) -> str:
+    def _normalize_language_name(self, language: str) -> str:
         """
-        Get the appropriate comment prefix for a given language.
+        Normalize language names for better detection.
 
         Args:
-            language: The programming language
+            language: Raw language name from code block
 
         Returns:
-            Comment prefix string
+            Normalized language name
         """
         if not language:
-            return "#"
+            return "text"
 
-        language_lower = language.lower()
+        lang_lower = language.lower().strip()
 
-        # Languages that use # for comments
-        if language_lower in ['python', 'py', 'shell', 'bash', 'sh', 'ruby', 'yaml', 'yml', 'r', 'perl']:
-            return "#"
+        # Language mappings for common variations
+        language_mappings = {
+            # Python variations
+            'py': 'python',
+            'python3': 'python',
+            'python2': 'python',
 
-        # Languages that use // for comments
-        elif language_lower in ['javascript', 'js', 'typescript', 'ts', 'java', 'cpp', 'c++', 'c', 'csharp', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'php']:
-            return "//"
+            # JavaScript variations
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'node': 'javascript',
+            'nodejs': 'javascript',
 
-        # Languages that use -- for comments
-        elif language_lower in ['sql', 'lua']:
-            return "--"
+            # TypeScript variations
+            'ts': 'typescript',
+            'tsx': 'typescript',
 
-        # Languages that use <!-- --> for comments (we'll use <!-- for line comments)
-        elif language_lower in ['html', 'xml']:
-            return "<!--"
+            # Java variations
+            'java': 'java',
 
-        # Languages that use /* */ for comments (we'll use // as fallback)
-        elif language_lower in ['css', 'scss', 'sass']:
-            return "/*"
+            # C/C++ variations
+            'c++': 'cpp',
+            'cxx': 'cpp',
+            'cc': 'cpp',
 
-        # Default to # for unknown languages
-        else:
-            return "#"
+            # C# variations
+            'c#': 'csharp',
+            'cs': 'csharp',
+
+            # Shell variations
+            'bash': 'shell',
+            'sh': 'shell',
+            'zsh': 'shell',
+
+            # Web languages
+            'html': 'html',
+            'htm': 'html',
+            'css': 'css',
+            'scss': 'css',
+            'sass': 'css',
+
+            # Data formats
+            'json': 'json',
+            'xml': 'xml',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+
+            # Database
+            'sql': 'sql',
+            'mysql': 'sql',
+            'postgresql': 'sql',
+            'postgres': 'sql',
+
+            # Other languages
+            'go': 'go',
+            'golang': 'go',
+            'rust': 'rust',
+            'rs': 'rust',
+            'php': 'php',
+            'ruby': 'ruby',
+            'rb': 'ruby',
+            'swift': 'swift',
+            'kotlin': 'kotlin',
+            'kt': 'kotlin',
+            'scala': 'scala',
+            'r': 'r',
+            'matlab': 'matlab',
+            'perl': 'perl',
+            'lua': 'lua',
+        }
+
+        return language_mappings.get(lang_lower, lang_lower)
+
+
 
     def _create_file_from_block(self, code_block: CodeBlock, block_index: int) -> Optional[GeneratedFile]:
         """
