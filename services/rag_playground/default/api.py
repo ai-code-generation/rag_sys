@@ -15,13 +15,16 @@
 
 """This module contains the Server that will host the frontend and API."""
 import os
+import mimetypes
+from typing import Optional
 
 import gradio as gr
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from frontend import pages
 from frontend.chat_client import ChatClient
+from frontend.file_generator import get_file_generator
 
 STATIC_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "static")
 
@@ -61,5 +64,31 @@ class APIServer(FastAPI):
         @self.get("/kb")
         async def kb_redirect() -> FileResponse:
             return FileResponse(os.path.join(STATIC_DIR, "kb.html"))
+
+        @self.get("/download/{filename}")
+        async def download_code_file(filename: str) -> FileResponse:
+            """Download a generated code file."""
+            file_generator = get_file_generator()
+            file_path = file_generator.get_file_path(filename)
+
+            if not file_path or not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="File not found")
+
+            # Get file info for proper content type
+            file_info = file_generator.get_file_info(filename)
+            if not file_info:
+                raise HTTPException(status_code=404, detail="File info not found")
+
+            # Determine content type based on file extension
+            content_type, _ = mimetypes.guess_type(file_path)
+            if not content_type:
+                content_type = "text/plain"
+
+            return FileResponse(
+                path=file_path,
+                filename=filename,
+                media_type=content_type,
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
 
         self.mount("/", StaticFiles(directory=STATIC_DIR, html=True))

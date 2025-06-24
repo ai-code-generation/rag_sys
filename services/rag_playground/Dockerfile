@@ -32,8 +32,15 @@ RUN if [ "${PLAYGROUND_MODE}" = "speech" ] ; then \
 
 RUN apt-get clean
 
-USER 1001
+# Copy shared modules first as root
+COPY frontend /app/frontend_shared
 COPY $PLAYGROUND_MODE /app/frontend
 
+# Copy shared modules to the frontend directory
+RUN cp -r /app/frontend_shared/* /app/frontend/ && \
+    rm -rf /app/frontend_shared && \
+    chown -R 1001:1001 /app
+
+USER 1001
 WORKDIR /app
 ENTRYPOINT ["python3.10", "-m", "frontend"]

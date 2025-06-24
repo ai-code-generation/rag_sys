@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Tuple, Union
 import gradio as gr
 import riva.client
 from frontend import asr_utils, assets, chat_client, tts_utils
+from frontend.file_generator import get_file_generator
 
 _LOGGER = logging.getLogger(__name__)
 PATH = "/converse"
@@ -86,6 +87,13 @@ def build_page(client: chat_client.ChatClient) -> gr.Blocks:
             chatbot = gr.Chatbot(scale=2, label=client.model_name)
             latest_response = gr.Textbox(visible=False)
             context = gr.JSON(scale=1, label="Knowledge Base Context", visible=False, elem_id="contextbox",)
+
+        # code download section
+        with gr.Row(visible=False) as download_row:
+            with gr.Column():
+                gr.Markdown("### 📁 Generated Code Files")
+                download_files = gr.HTML(value="", visible=True)
+                download_status = gr.Textbox(label="Status", visible=False)
 
         # TTS output box
         # visible so that users can stop or replay playback
@@ -178,8 +186,8 @@ def build_page(client: chat_client.ChatClient) -> gr.Blocks:
 
         # form actions
         _my_build_stream = functools.partial(_stream_predict, client)
-        msg.submit(_my_build_stream, [kb_checkbox, msg, chatbot], [msg, chatbot, context, latest_response])
-        submit_btn.click(_my_build_stream, [kb_checkbox, msg, chatbot], [msg, chatbot, context, latest_response])
+        msg.submit(_my_build_stream, [kb_checkbox, msg, chatbot], [msg, chatbot, context, latest_response, download_row, download_files, download_status])
+        submit_btn.click(_my_build_stream, [kb_checkbox, msg, chatbot], [msg, chatbot, context, latest_response, download_row, download_files, download_status])
 
         tts_language_dropdown.change(
             tts_utils.update_voice_dropdown, [tts_language_dropdown], [tts_voice_dropdown], api_name=False
@@ -222,6 +230,72 @@ def _stream_predict(
     for chunk in client.predict(query=question, use_knowledge_base=use_knowledge_base, num_tokens=OUTPUT_TOKENS):
         if chunk:
             chunks += chunk
-            yield "", chat_history + [[question, chunks]], documents, ""
+            yield "", chat_history + [[question, chunks]], documents, "", gr.update(visible=False), "", ""
         else:
-            yield "", chat_history + [[question, chunks]], documents, chunks
+            # Response is complete, check for code blocks and generate files
+            download_html, download_visible, status_msg = _process_code_blocks(chunks)
+            yield "", chat_history + [[question, chunks]], documents, chunks, gr.update(visible=download_visible), download_html, status_msg
+
+
+def _process_code_blocks(response_text: str) -> Tuple[str, bool, str]:
+    """
+    Process response text for code blocks and generate downloadable files.
+
+    Args:
+        response_text: Complete response text to process
+
+    Returns:
+        Tuple of (download_html, download_visible, status_message)
+    """
+    try:
+        file_generator = get_file_generator()
+        result = file_generator.generate_files_from_response(response_text)
+
+        if not result.success or result.total_files == 0:
+            return "", False, ""
+
+        # Generate HTML for download links
+        download_html = _generate_download_html(result.files)
+        status_msg = result.message
+
+        _LOGGER.info(f"Generated {result.total_files} code files for download")
+        return download_html, True, status_msg
+
+    except Exception as e:
+        _LOGGER.error(f"Error processing code blocks: {e}")
+        return "", False, f"Error processing code: {str(e)}"
+
+
+def _generate_download_html(files) -> str:
+    """Generate HTML for download links."""
+    if not files:
+        return ""
+
+    html_parts = []
+    for file_info in files:
+        language_badge = ""
+        if file_info.language:
+            language_badge = f'<span style="background-color: #e1f5fe; color: #01579b; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; margin-right: 8px;">{file_info.language}</span>'
+
+        size_kb = file_info.size / 1024
+        size_text = f"{size_kb:.1f} KB" if size_kb >= 1 else f"{file_info.size} bytes"
+
+        download_link = f'/download/{file_info.filename}'
+
+        html_parts.append(f'''
+        <div style="border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: #f9f9f9;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    {language_badge}
+                    <strong>{file_info.filename}</strong>
+                    <span style="color: #666; margin-left: 8px;">({size_text})</span>
+                </div>
+                <a href="{download_link}" download="{file_info.filename}"
+                   style="background-color: #1976d2; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 0.9em;">
+                    📥 Download
+                </a>
+            </div>
+        </div>
+        ''')
+
+    return ''.join(html_parts)
