@@ -30,6 +30,12 @@ from .code_extractor import CodeExtractor, ExtractedCode, CodeBlock
 
 _LOGGER = logging.getLogger(__name__)
 
+# Constants for S32 IDE DEMO Hackathon
+S32_TRIGGER_PHRASE = "s32 ide demo hackathon"
+SWTBOT_PROJECT_PATH = "/swtbot-example"
+DEMO_TEST_RELATIVE_PATH = "src/test/java/com/fpt/ai/scripts"
+DEMO_TEST_FILENAME = "DemoTest.java"
+
 
 class GeneratedFile(NamedTuple):
     """Represents a generated code file."""
@@ -123,7 +129,8 @@ class FileGenerator:
         """
         try:
             # Check for special S32 IDE DEMO Hackathon handling
-            if "s32 ide demo hackathon" in user_query.lower():
+            if S32_TRIGGER_PHRASE in user_query.lower():
+                _LOGGER.info("S32 IDE DEMO Hackathon detected - using special handler")
                 return self._handle_s32_demo_hackathon(response_text)
 
             # Extract code blocks
@@ -334,6 +341,125 @@ class FileGenerator:
 
         return language_mappings.get(lang_lower, lang_lower)
 
+    def _cleanup_git_repository(self, repo_path: str) -> None:
+        """
+        Clean the git repository by resetting any changes.
+
+        Args:
+            repo_path: Path to the git repository
+        """
+        try:
+            # Check if there are any changes
+            git_status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+
+            # Only clean if there are changes
+            if git_status.stdout.strip():
+                subprocess.run(
+                    ["git", "clean", "-fd"],
+                    cwd=repo_path,
+                    check=True,
+                    capture_output=True
+                )
+                subprocess.run(
+                    ["git", "reset", "--hard", "HEAD"],
+                    cwd=repo_path,
+                    check=True,
+                    capture_output=True
+                )
+                _LOGGER.info("Cleaned git repository")
+        except subprocess.CalledProcessError:
+            _LOGGER.warning("Git cleanup failed (continuing anyway)")
+        except Exception as e:
+            _LOGGER.warning(f"Git cleanup error: {e}")
+
+    def _create_demo_test_file(self, project_path: str, code_blocks: list) -> str:
+        """
+        Create DemoTest.java file in the SWTBot project.
+
+        Args:
+            project_path: Path to the SWTBot project
+            code_blocks: List of code blocks to combine
+
+        Returns:
+            Path to the created file, or None if failed
+        """
+        try:
+            # Create target directory
+            demo_test_dir = os.path.join(project_path, DEMO_TEST_RELATIVE_PATH)
+            os.makedirs(demo_test_dir, exist_ok=True)
+
+            # Combine code blocks
+            demo_test_content = []
+            for i, code_block in enumerate(code_blocks, 1):
+                demo_test_content.append(code_block.content)
+                if not code_block.content.endswith('\n'):
+                    demo_test_content.append('\n')
+                if i < len(code_blocks):
+                    demo_test_content.append('\n')
+
+            # Write file
+            demo_test_path = os.path.join(demo_test_dir, DEMO_TEST_FILENAME)
+            with open(demo_test_path, 'w', encoding='utf-8') as f:
+                f.write(''.join(demo_test_content))
+
+            _LOGGER.info(f"Created DemoTest.java with {len(code_blocks)} code blocks")
+            return demo_test_path
+
+        except Exception as e:
+            _LOGGER.error(f"Failed to create DemoTest.java: {e}")
+            return None
+
+    def _create_project_zip(self, project_path: str) -> GeneratedFile:
+        """
+        Create a zip file of the entire SWTBot project.
+
+        Args:
+            project_path: Path to the SWTBot project
+
+        Returns:
+            GeneratedFile object for the zip file, or None if failed
+        """
+        try:
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            zip_filename = f"swtbot-s32-demo-{unique_id}.zip"
+            zip_filepath = os.path.join(self.temp_dir, zip_filename)
+
+            with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(project_path):
+                    # Skip .git directory for security
+                    if '.git' in dirs:
+                        dirs.remove('.git')
+
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, project_path)
+                        zipf.write(file_path, arcname)
+
+            zip_size = os.path.getsize(zip_filepath)
+
+            generated_file = GeneratedFile(
+                filename=zip_filename,
+                filepath=zip_filepath,
+                language="java",
+                size=zip_size,
+                created_at=time.time()
+            )
+
+            self._generated_files[zip_filename] = generated_file
+            _LOGGER.info(f"Created project zip: {zip_filename} ({zip_size} bytes)")
+            return generated_file
+
+        except Exception as e:
+            _LOGGER.error(f"Failed to create project zip: {e}")
+            return None
+
     def _handle_s32_demo_hackathon(self, response_text: str) -> FileGenerationResult:
         """
         Special handler for S32 IDE DEMO Hackathon requests.
@@ -346,6 +472,8 @@ class FileGenerator:
             FileGenerationResult with zip file of the swtbot-example project
         """
         try:
+            _LOGGER.info("Processing S32 IDE DEMO Hackathon request")
+
             # Extract code blocks
             extracted_code = self.code_extractor.extract_code_blocks(response_text)
 
@@ -357,122 +485,37 @@ class FileGenerator:
                     total_files=0
                 )
 
-            # Path to the mounted swtbot-example project
-            swtbot_project_path = "/swtbot-example"
-
-            if not os.path.exists(swtbot_project_path):
+            # Check if the mounted SWTBot project exists
+            if not os.path.exists(SWTBOT_PROJECT_PATH):
                 return FileGenerationResult(
                     files=[],
                     success=False,
-                    message="SWTBot example project not found at /swtbot-example",
+                    message=f"SWTBot example project not found at {SWTBOT_PROJECT_PATH}",
                     total_files=0
                 )
 
             # Clean the git repository (reset any changes) - but don't fail if it doesn't work
-            try:
-                # First check if we're in a git repository and if we have permissions
-                git_status = subprocess.run(
-                    ["git", "status", "--porcelain"],
-                    cwd=swtbot_project_path,
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
+            self._cleanup_git_repository(SWTBOT_PROJECT_PATH)
 
-                # Only clean if there are changes and we have permissions
-                if git_status.stdout.strip():
-                    subprocess.run(
-                        ["git", "clean", "-fd"],
-                        cwd=swtbot_project_path,
-                        check=True,
-                        capture_output=True
-                    )
-                    subprocess.run(
-                        ["git", "reset", "--hard", "HEAD"],
-                        cwd=swtbot_project_path,
-                        check=True,
-                        capture_output=True
-                    )
-                    _LOGGER.info("Cleaned SWTBot project git repository")
-                else:
-                    _LOGGER.info("SWTBot project git repository is already clean")
-            except subprocess.CalledProcessError as e:
-                _LOGGER.warning(f"Git cleanup failed (continuing anyway): {e}")
-            except Exception as e:
-                _LOGGER.warning(f"Git cleanup error (continuing anyway): {e}")
-
-            # Create the target directory for DemoTest.java
-            demo_test_dir = os.path.join(swtbot_project_path, "src", "test", "java", "com", "fpt", "ai", "scripts")
-            try:
-                os.makedirs(demo_test_dir, exist_ok=True)
-            except PermissionError:
+            # Create DemoTest.java in the project
+            demo_test_path = self._create_demo_test_file(SWTBOT_PROJECT_PATH, extracted_code.blocks)
+            if not demo_test_path:
                 return FileGenerationResult(
                     files=[],
                     success=False,
-                    message=f"Permission denied: Cannot create directory {demo_test_dir}. Please check mount permissions.",
-                    total_files=0
-                )
-
-            # Combine all code blocks into DemoTest.java
-            demo_test_content = []
-            for i, code_block in enumerate(extracted_code.blocks, 1):
-                demo_test_content.append(code_block.content)
-                if not code_block.content.endswith('\n'):
-                    demo_test_content.append('\n')
-                if i < len(extracted_code.blocks):
-                    demo_test_content.append('\n')
-
-            # Write DemoTest.java
-            demo_test_path = os.path.join(demo_test_dir, "DemoTest.java")
-            try:
-                with open(demo_test_path, 'w', encoding='utf-8') as f:
-                    f.write(''.join(demo_test_content))
-                _LOGGER.info(f"Created DemoTest.java with {len(extracted_code.blocks)} code blocks")
-            except PermissionError:
-                return FileGenerationResult(
-                    files=[],
-                    success=False,
-                    message=f"Permission denied: Cannot write to {demo_test_path}. Please check mount permissions (container runs as uid 1001).",
-                    total_files=0
-                )
-            except Exception as e:
-                return FileGenerationResult(
-                    files=[],
-                    success=False,
-                    message=f"Error writing DemoTest.java: {str(e)}",
+                    message="Failed to create DemoTest.java file",
                     total_files=0
                 )
 
             # Create zip file of the entire project
-            import uuid
-            unique_id = str(uuid.uuid4())[:8]
-            zip_filename = f"swtbot-s32-demo-{unique_id}.zip"
-            zip_filepath = os.path.join(self.temp_dir, zip_filename)
-
-            with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, dirs, files in os.walk(swtbot_project_path):
-                    # Skip .git directory
-                    if '.git' in dirs:
-                        dirs.remove('.git')
-
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        # Calculate relative path from project root
-                        arcname = os.path.relpath(file_path, swtbot_project_path)
-                        zipf.write(file_path, arcname)
-
-            # Get zip file size
-            zip_size = os.path.getsize(zip_filepath)
-
-            generated_file = GeneratedFile(
-                filename=zip_filename,
-                filepath=zip_filepath,
-                language="java",
-                size=zip_size,
-                created_at=time.time()
-            )
-
-            self._generated_files[zip_filename] = generated_file
+            generated_file = self._create_project_zip(SWTBOT_PROJECT_PATH)
+            if not generated_file:
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message="Failed to create project zip file",
+                    total_files=0
+                )
 
             return FileGenerationResult(
                 files=[generated_file],
