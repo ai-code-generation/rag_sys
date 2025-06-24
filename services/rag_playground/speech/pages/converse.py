@@ -233,16 +233,17 @@ def _stream_predict(
             yield "", chat_history + [[question, chunks]], documents, "", gr.update(visible=False), "", ""
         else:
             # Response is complete, check for code blocks and generate files
-            download_html, download_visible, status_msg = _process_code_blocks(chunks)
+            download_html, download_visible, status_msg = _process_code_blocks(chunks, question)
             yield "", chat_history + [[question, chunks]], documents, chunks, gr.update(visible=download_visible), download_html, status_msg
 
 
-def _process_code_blocks(response_text: str) -> Tuple[str, bool, str]:
+def _process_code_blocks(response_text: str, user_query: str = "") -> Tuple[str, bool, str]:
     """
     Process response text for code blocks and generate downloadable files.
 
     Args:
         response_text: Complete response text to process
+        user_query: The original user query (for special handling)
 
     Returns:
         Tuple of (download_html, download_visible, status_message)
@@ -253,7 +254,7 @@ def _process_code_blocks(response_text: str) -> Tuple[str, bool, str]:
         # Clean up any existing files from previous requests
         file_generator.cleanup_all_files()
 
-        result = file_generator.generate_files_from_response(response_text)
+        result = file_generator.generate_files_from_response(response_text, user_query)
 
         if not result.success or result.total_files == 0:
             return "", False, ""
@@ -283,8 +284,17 @@ def _generate_download_html(files) -> str:
 
     download_link = f'/download/{file_info.filename}'
 
-    # Get language badge
-    language_display = file_info.language if file_info.language and file_info.language != "text" else "Code"
+    # Get language badge and description based on file type
+    if file_info.filename.endswith('.zip'):
+        language_display = "Project"
+        description = "S32 IDE DEMO Hackathon project with DemoTest.java"
+        icon = "📦"
+        button_text = "📥 Download Project"
+    else:
+        language_display = file_info.language if file_info.language and file_info.language != "text" else "Code"
+        description = "Raw code blocks combined"
+        icon = "📄"
+        button_text = "📥 Download Code"
 
     html = f'''
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 8px 0; background-color: #f9f9f9;">
@@ -292,17 +302,17 @@ def _generate_download_html(files) -> str:
             <div>
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <span style="background-color: #e8f5e8; color: #2e7d32; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;">
-                        📄 {language_display}
+                        {icon} {language_display}
                     </span>
                     <strong>{file_info.filename}</strong>
                 </div>
                 <div style="color: #666; font-size: 0.9em;">
-                    Raw code blocks combined • {size_text}
+                    {description} • {size_text}
                 </div>
             </div>
             <a href="{download_link}" download="{file_info.filename}"
                style="background-color: #1976d2; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500;">
-                📥 Download Code
+                {button_text}
             </a>
         </div>
     </div>

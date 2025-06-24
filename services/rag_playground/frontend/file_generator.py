@@ -19,6 +19,9 @@ import os
 import tempfile
 import time
 import threading
+import subprocess
+import shutil
+import zipfile
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional
 import logging
@@ -107,17 +110,22 @@ class FileGenerator:
         for filename in files_to_remove:
             self._generated_files.pop(filename, None)
     
-    def generate_files_from_response(self, response_text: str) -> FileGenerationResult:
+    def generate_files_from_response(self, response_text: str, user_query: str = "") -> FileGenerationResult:
         """
         Generate a single downloadable file from all code blocks in response text.
 
         Args:
             response_text: The complete response text to extract code from
+            user_query: The original user query (for special handling)
 
         Returns:
             FileGenerationResult with information about generated file
         """
         try:
+            # Check for special S32 IDE DEMO Hackathon handling
+            if "s32 ide demo hackathon" in user_query.lower():
+                return self._handle_s32_demo_hackathon(response_text)
+
             # Extract code blocks
             extracted_code = self.code_extractor.extract_code_blocks(response_text)
 
@@ -325,6 +333,162 @@ class FileGenerator:
         }
 
         return language_mappings.get(lang_lower, lang_lower)
+
+    def _handle_s32_demo_hackathon(self, response_text: str) -> FileGenerationResult:
+        """
+        Special handler for S32 IDE DEMO Hackathon requests.
+        Creates DemoTest.java in the swtbot-example project and returns a zip file.
+
+        Args:
+            response_text: The complete response text to extract code from
+
+        Returns:
+            FileGenerationResult with zip file of the swtbot-example project
+        """
+        try:
+            # Extract code blocks
+            extracted_code = self.code_extractor.extract_code_blocks(response_text)
+
+            if not extracted_code.has_code:
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message="No code blocks found for S32 IDE DEMO Hackathon",
+                    total_files=0
+                )
+
+            # Path to the mounted swtbot-example project
+            swtbot_project_path = "/swtbot-example"
+
+            if not os.path.exists(swtbot_project_path):
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message="SWTBot example project not found at /swtbot-example",
+                    total_files=0
+                )
+
+            # Clean the git repository (reset any changes) - but don't fail if it doesn't work
+            try:
+                # First check if we're in a git repository and if we have permissions
+                git_status = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=swtbot_project_path,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+
+                # Only clean if there are changes and we have permissions
+                if git_status.stdout.strip():
+                    subprocess.run(
+                        ["git", "clean", "-fd"],
+                        cwd=swtbot_project_path,
+                        check=True,
+                        capture_output=True
+                    )
+                    subprocess.run(
+                        ["git", "reset", "--hard", "HEAD"],
+                        cwd=swtbot_project_path,
+                        check=True,
+                        capture_output=True
+                    )
+                    _LOGGER.info("Cleaned SWTBot project git repository")
+                else:
+                    _LOGGER.info("SWTBot project git repository is already clean")
+            except subprocess.CalledProcessError as e:
+                _LOGGER.warning(f"Git cleanup failed (continuing anyway): {e}")
+            except Exception as e:
+                _LOGGER.warning(f"Git cleanup error (continuing anyway): {e}")
+
+            # Create the target directory for DemoTest.java
+            demo_test_dir = os.path.join(swtbot_project_path, "src", "test", "java", "com", "fpt", "ai", "scripts")
+            try:
+                os.makedirs(demo_test_dir, exist_ok=True)
+            except PermissionError:
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message=f"Permission denied: Cannot create directory {demo_test_dir}. Please check mount permissions.",
+                    total_files=0
+                )
+
+            # Combine all code blocks into DemoTest.java
+            demo_test_content = []
+            for i, code_block in enumerate(extracted_code.blocks, 1):
+                demo_test_content.append(code_block.content)
+                if not code_block.content.endswith('\n'):
+                    demo_test_content.append('\n')
+                if i < len(extracted_code.blocks):
+                    demo_test_content.append('\n')
+
+            # Write DemoTest.java
+            demo_test_path = os.path.join(demo_test_dir, "DemoTest.java")
+            try:
+                with open(demo_test_path, 'w', encoding='utf-8') as f:
+                    f.write(''.join(demo_test_content))
+                _LOGGER.info(f"Created DemoTest.java with {len(extracted_code.blocks)} code blocks")
+            except PermissionError:
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message=f"Permission denied: Cannot write to {demo_test_path}. Please check mount permissions (container runs as uid 1001).",
+                    total_files=0
+                )
+            except Exception as e:
+                return FileGenerationResult(
+                    files=[],
+                    success=False,
+                    message=f"Error writing DemoTest.java: {str(e)}",
+                    total_files=0
+                )
+
+            # Create zip file of the entire project
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            zip_filename = f"swtbot-s32-demo-{unique_id}.zip"
+            zip_filepath = os.path.join(self.temp_dir, zip_filename)
+
+            with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(swtbot_project_path):
+                    # Skip .git directory
+                    if '.git' in dirs:
+                        dirs.remove('.git')
+
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Calculate relative path from project root
+                        arcname = os.path.relpath(file_path, swtbot_project_path)
+                        zipf.write(file_path, arcname)
+
+            # Get zip file size
+            zip_size = os.path.getsize(zip_filepath)
+
+            generated_file = GeneratedFile(
+                filename=zip_filename,
+                filepath=zip_filepath,
+                language="java",
+                size=zip_size,
+                created_at=time.time()
+            )
+
+            self._generated_files[zip_filename] = generated_file
+
+            return FileGenerationResult(
+                files=[generated_file],
+                success=True,
+                message=f"Successfully created S32 IDE DEMO Hackathon project with DemoTest.java containing {len(extracted_code.blocks)} code blocks",
+                total_files=1
+            )
+
+        except Exception as e:
+            _LOGGER.error(f"Error handling S32 IDE DEMO Hackathon: {e}")
+            return FileGenerationResult(
+                files=[],
+                success=False,
+                message=f"Error creating S32 IDE DEMO project: {str(e)}",
+                total_files=0
+            )
 
     def _detect_language_from_content(self, content: str) -> Optional[str]:
         """
