@@ -352,10 +352,13 @@ class FileGenerator:
             'else:', 'elif:', 'pass', 'break', 'continue', 'yield', 'assert'
         ]
 
-        # Java patterns
+        # Java patterns (more comprehensive and specific)
         java_patterns = [
             'public class', 'private ', 'public static void main', 'System.out.print',
-            'import java.', 'public static', 'private static', '// '
+            'import java.', 'import org.', 'public static', 'private static',
+            'public void', 'private void', 'protected ', '@Test', '@Override',
+            'new ', 'extends ', 'implements ', 'throws ', 'catch ', 'finally ',
+            'String ', 'int ', 'boolean ', 'void ', 'null', 'true', 'false'
         ]
 
         # JavaScript patterns
@@ -392,15 +395,25 @@ class FileGenerator:
         # Count pattern matches for each language
         scores = {}
 
-        # Python
-        python_score = sum(1 for pattern in python_patterns if pattern in content_lower)
-        if python_score > 0:
-            scores['python'] = python_score
-
-        # Java
+        # Java (check first to avoid Python false positives)
         java_score = sum(1 for pattern in java_patterns if pattern in content_lower)
+        # Boost score for strong Java indicators
+        if 'public class' in content_lower:
+            java_score += 3
+        if 'import java.' in content_lower or 'import org.' in content_lower:
+            java_score += 2
+        if '@test' in content_lower or '@override' in content_lower:
+            java_score += 2
         if java_score > 0:
             scores['java'] = java_score
+
+        # Python (only if Java score is low)
+        python_score = sum(1 for pattern in python_patterns if pattern in content_lower)
+        # Reduce Python score if Java indicators are present
+        if java_score > 2:
+            python_score = max(0, python_score - 2)
+        if python_score > 0:
+            scores['python'] = python_score
 
         # JavaScript
         js_score = sum(1 for pattern in js_patterns if pattern in content_lower)
