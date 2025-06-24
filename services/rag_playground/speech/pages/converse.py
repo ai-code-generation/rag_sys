@@ -249,6 +249,10 @@ def _process_code_blocks(response_text: str) -> Tuple[str, bool, str]:
     """
     try:
         file_generator = get_file_generator()
+
+        # Clean up any existing files from previous requests
+        file_generator.cleanup_all_files()
+
         result = file_generator.generate_files_from_response(response_text)
 
         if not result.success or result.total_files == 0:
@@ -279,23 +283,26 @@ def _generate_download_html(files) -> str:
 
     download_link = f'/download/{file_info.filename}'
 
+    # Get language badge
+    language_display = file_info.language if file_info.language and file_info.language != "text" else "Code"
+
     html = f'''
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 8px 0; background-color: #f9f9f9;">
         <div style="display: flex; align-items: center; justify-content: space-between;">
             <div>
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <span style="background-color: #e8f5e8; color: #2e7d32; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;">
-                        📄 Combined Code
+                        📄 {language_display}
                     </span>
                     <strong>{file_info.filename}</strong>
                 </div>
                 <div style="color: #666; font-size: 0.9em;">
-                    All code blocks combined • {size_text}
+                    Raw code blocks combined • {size_text}
                 </div>
             </div>
             <a href="{download_link}" download="{file_info.filename}"
                style="background-color: #1976d2; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500;">
-                📥 Download All Code
+                📥 Download Code
             </a>
         </div>
     </div>

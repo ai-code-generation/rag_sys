@@ -167,7 +167,7 @@ class FileGenerator:
     
     def _create_combined_file(self, code_blocks: List[CodeBlock]) -> Optional[GeneratedFile]:
         """
-        Create a single file combining all code blocks.
+        Create a single file combining all code blocks with raw code only.
 
         Args:
             code_blocks: List of code blocks to combine
@@ -179,33 +179,48 @@ class FileGenerator:
             # Generate filename for combined file
             import uuid
             unique_id = str(uuid.uuid4())[:8]
-            filename = f"extracted_code_{unique_id}.md"
+
+            # Determine file extension based on most common language or use .txt
+            language_counts = {}
+            for block in code_blocks:
+                if block.language:
+                    language_counts[block.language] = language_counts.get(block.language, 0) + 1
+
+            if language_counts:
+                # Use the most common language for file extension
+                most_common_language = max(language_counts, key=language_counts.get)
+                extension = self.code_extractor.get_file_extension(most_common_language)
+                filename = f"extracted_code_{unique_id}{extension}"
+            else:
+                filename = f"extracted_code_{unique_id}.txt"
+
             filepath = os.path.join(self.temp_dir, filename)
 
-            # Create combined content
+            # Create combined content with raw code only
             combined_content = []
-            combined_content.append("# Extracted Code Blocks\n")
-            combined_content.append(f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            combined_content.append(f"Total blocks: {len(code_blocks)}\n\n")
+
+            # Add header comment with metadata
+            comment_prefix = self._get_comment_prefix(most_common_language if language_counts else None)
+            combined_content.append(f"{comment_prefix} Extracted Code Blocks\n")
+            combined_content.append(f"{comment_prefix} Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            combined_content.append(f"{comment_prefix} Total blocks: {len(code_blocks)}\n")
+            combined_content.append(f"{comment_prefix} Languages: {', '.join(language_counts.keys()) if language_counts else 'unknown'}\n\n")
 
             for i, code_block in enumerate(code_blocks, 1):
-                # Add section header
+                # Add section header as comment
                 language_info = f" ({code_block.language})" if code_block.language else ""
-                combined_content.append(f"## Code Block {i}{language_info}\n\n")
+                combined_content.append(f"{comment_prefix} ===== Code Block {i}{language_info} =====\n")
 
-                # Add the code block with proper markdown formatting
-                if code_block.language:
-                    combined_content.append(f"```{code_block.language}\n")
-                else:
-                    combined_content.append("```\n")
+                # Add the raw code content
                 combined_content.append(code_block.content)
+
+                # Ensure proper line ending
                 if not code_block.content.endswith('\n'):
                     combined_content.append('\n')
-                combined_content.append("```\n\n")
 
                 # Add separator between blocks
                 if i < len(code_blocks):
-                    combined_content.append("---\n\n")
+                    combined_content.append(f"\n{comment_prefix} " + "="*50 + "\n\n")
 
             # Write combined content to file
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -217,7 +232,7 @@ class FileGenerator:
             return GeneratedFile(
                 filename=filename,
                 filepath=filepath,
-                language="markdown",  # Combined file is markdown
+                language=most_common_language if language_counts else "text",
                 size=file_size,
                 created_at=time.time()
             )
@@ -225,6 +240,45 @@ class FileGenerator:
         except Exception as e:
             _LOGGER.error(f"Error creating combined file: {e}")
             return None
+
+    def _get_comment_prefix(self, language: Optional[str]) -> str:
+        """
+        Get the appropriate comment prefix for a given language.
+
+        Args:
+            language: The programming language
+
+        Returns:
+            Comment prefix string
+        """
+        if not language:
+            return "#"
+
+        language_lower = language.lower()
+
+        # Languages that use # for comments
+        if language_lower in ['python', 'py', 'shell', 'bash', 'sh', 'ruby', 'yaml', 'yml', 'r', 'perl']:
+            return "#"
+
+        # Languages that use // for comments
+        elif language_lower in ['javascript', 'js', 'typescript', 'ts', 'java', 'cpp', 'c++', 'c', 'csharp', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'php']:
+            return "//"
+
+        # Languages that use -- for comments
+        elif language_lower in ['sql', 'lua']:
+            return "--"
+
+        # Languages that use <!-- --> for comments (we'll use <!-- for line comments)
+        elif language_lower in ['html', 'xml']:
+            return "<!--"
+
+        # Languages that use /* */ for comments (we'll use // as fallback)
+        elif language_lower in ['css', 'scss', 'sass']:
+            return "/*"
+
+        # Default to # for unknown languages
+        else:
+            return "#"
 
     def _create_file_from_block(self, code_block: CodeBlock, block_index: int) -> Optional[GeneratedFile]:
         """
