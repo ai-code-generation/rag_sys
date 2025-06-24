@@ -109,18 +109,18 @@ class FileGenerator:
     
     def generate_files_from_response(self, response_text: str) -> FileGenerationResult:
         """
-        Generate downloadable files from code blocks in response text.
-        
+        Generate a single downloadable file from all code blocks in response text.
+
         Args:
             response_text: The complete response text to extract code from
-            
+
         Returns:
-            FileGenerationResult with information about generated files
+            FileGenerationResult with information about generated file
         """
         try:
             # Extract code blocks
             extracted_code = self.code_extractor.extract_code_blocks(response_text)
-            
+
             if not extracted_code.has_code:
                 return FileGenerationResult(
                     files=[],
@@ -128,44 +128,34 @@ class FileGenerator:
                     message="No code blocks found in response",
                     total_files=0
                 )
-            
-            # Generate files for each code block
-            generated_files = []
-            for i, code_block in enumerate(extracted_code.blocks):
-                try:
-                    generated_file = self._create_file_from_block(code_block, i)
-                    if generated_file:
-                        generated_files.append(generated_file)
-                        self._generated_files[generated_file.filename] = generated_file
-                except Exception as e:
-                    _LOGGER.error(f"Error generating file for code block {i}: {e}")
-                    continue
-            
-            success_count = len(generated_files)
-            total_blocks = extracted_code.total_blocks
-            
-            if success_count == 0:
+
+            # Generate a single combined file
+            try:
+                generated_file = self._create_combined_file(extracted_code.blocks)
+                if generated_file:
+                    self._generated_files[generated_file.filename] = generated_file
+                    return FileGenerationResult(
+                        files=[generated_file],
+                        success=True,
+                        message=f"Successfully generated combined code file with {extracted_code.total_blocks} code blocks",
+                        total_files=1
+                    )
+                else:
+                    return FileGenerationResult(
+                        files=[],
+                        success=False,
+                        message="Failed to generate combined code file",
+                        total_files=0
+                    )
+            except Exception as e:
+                _LOGGER.error(f"Error generating combined file: {e}")
                 return FileGenerationResult(
                     files=[],
                     success=False,
-                    message="Failed to generate any files from code blocks",
+                    message=f"Error generating combined file: {str(e)}",
                     total_files=0
                 )
-            elif success_count < total_blocks:
-                return FileGenerationResult(
-                    files=generated_files,
-                    success=True,
-                    message=f"Generated {success_count} of {total_blocks} files (some failed)",
-                    total_files=success_count
-                )
-            else:
-                return FileGenerationResult(
-                    files=generated_files,
-                    success=True,
-                    message=f"Successfully generated {success_count} code files",
-                    total_files=success_count
-                )
-                
+
         except Exception as e:
             _LOGGER.error(f"Error in generate_files_from_response: {e}")
             return FileGenerationResult(
@@ -175,14 +165,75 @@ class FileGenerator:
                 total_files=0
             )
     
+    def _create_combined_file(self, code_blocks: List[CodeBlock]) -> Optional[GeneratedFile]:
+        """
+        Create a single file combining all code blocks.
+
+        Args:
+            code_blocks: List of code blocks to combine
+
+        Returns:
+            GeneratedFile object or None if creation failed
+        """
+        try:
+            # Generate filename for combined file
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            filename = f"extracted_code_{unique_id}.md"
+            filepath = os.path.join(self.temp_dir, filename)
+
+            # Create combined content
+            combined_content = []
+            combined_content.append("# Extracted Code Blocks\n")
+            combined_content.append(f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            combined_content.append(f"Total blocks: {len(code_blocks)}\n\n")
+
+            for i, code_block in enumerate(code_blocks, 1):
+                # Add section header
+                language_info = f" ({code_block.language})" if code_block.language else ""
+                combined_content.append(f"## Code Block {i}{language_info}\n\n")
+
+                # Add the code block with proper markdown formatting
+                if code_block.language:
+                    combined_content.append(f"```{code_block.language}\n")
+                else:
+                    combined_content.append("```\n")
+                combined_content.append(code_block.content)
+                if not code_block.content.endswith('\n'):
+                    combined_content.append('\n')
+                combined_content.append("```\n\n")
+
+                # Add separator between blocks
+                if i < len(code_blocks):
+                    combined_content.append("---\n\n")
+
+            # Write combined content to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(''.join(combined_content))
+
+            # Get file size
+            file_size = os.path.getsize(filepath)
+
+            return GeneratedFile(
+                filename=filename,
+                filepath=filepath,
+                language="markdown",  # Combined file is markdown
+                size=file_size,
+                created_at=time.time()
+            )
+
+        except Exception as e:
+            _LOGGER.error(f"Error creating combined file: {e}")
+            return None
+
     def _create_file_from_block(self, code_block: CodeBlock, block_index: int) -> Optional[GeneratedFile]:
         """
         Create a file from a single code block.
-        
+
         Args:
             code_block: The code block to create a file from
             block_index: Index of the code block
-            
+
         Returns:
             GeneratedFile object or None if creation failed
         """
@@ -190,14 +241,14 @@ class FileGenerator:
             # Generate filename
             filename = self.code_extractor.generate_filename(code_block.language, block_index)
             filepath = os.path.join(self.temp_dir, filename)
-            
+
             # Write code content to file
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(code_block.content)
-            
+
             # Get file size
             file_size = os.path.getsize(filepath)
-            
+
             return GeneratedFile(
                 filename=filename,
                 filepath=filepath,
@@ -205,7 +256,7 @@ class FileGenerator:
                 size=file_size,
                 created_at=time.time()
             )
-            
+
         except Exception as e:
             _LOGGER.error(f"Error creating file from code block: {e}")
             return None

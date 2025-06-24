@@ -56,7 +56,7 @@ def build_page(client: chat_client.ChatClient) -> gr.Blocks:
         # code download section
         with gr.Row(visible=False) as download_row:
             with gr.Column():
-                gr.Markdown("### 📁 Generated Code Files")
+                gr.Markdown("### 📁 Generated Code File")
                 download_files = gr.HTML(value="", visible=True)
                 download_status = gr.Textbox(label="Status", visible=False)
 
@@ -159,35 +159,41 @@ def _process_code_blocks(response_text: str) -> Tuple[str, bool, str]:
 
 
 def _generate_download_html(files) -> str:
-    """Generate HTML for download links."""
+    """Generate HTML for download link."""
     if not files:
         return ""
 
-    html_parts = []
-    for file_info in files:
-        language_badge = ""
-        if file_info.language:
-            language_badge = f'<span style="background-color: #e1f5fe; color: #01579b; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; margin-right: 8px;">{file_info.language}</span>'
+    # Since we now generate only one combined file
+    file_info = files[0]
 
-        size_kb = file_info.size / 1024
-        size_text = f"{size_kb:.1f} KB" if size_kb >= 1 else f"{file_info.size} bytes"
+    # Count how many code blocks are in the combined file by checking the message
+    # This is a simple way to get the block count from the success message
 
-        download_link = f'/download/{file_info.filename}'
+    size_kb = file_info.size / 1024
+    size_text = f"{size_kb:.1f} KB" if size_kb >= 1 else f"{file_info.size} bytes"
 
-        html_parts.append(f'''
-        <div style="border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: #f9f9f9;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                    {language_badge}
+    download_link = f'/download/{file_info.filename}'
+
+    html = f'''
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 8px 0; background-color: #f9f9f9;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="background-color: #e8f5e8; color: #2e7d32; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;">
+                        📄 Combined Code
+                    </span>
                     <strong>{file_info.filename}</strong>
-                    <span style="color: #666; margin-left: 8px;">({size_text})</span>
                 </div>
-                <a href="{download_link}" download="{file_info.filename}"
-                   style="background-color: #1976d2; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 0.9em;">
-                    📥 Download
-                </a>
+                <div style="color: #666; font-size: 0.9em;">
+                    All code blocks combined • {size_text}
+                </div>
             </div>
+            <a href="{download_link}" download="{file_info.filename}"
+               style="background-color: #1976d2; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500;">
+                📥 Download All Code
+            </a>
         </div>
-        ''')
+    </div>
+    '''
 
-    return ''.join(html_parts)
+    return html
