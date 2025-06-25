@@ -380,39 +380,190 @@ class FileGenerator:
 
     def _create_demo_test_file(self, project_path: str, code_blocks: list) -> str:
         """
-        Create DemoTest.java file in the SWTBot project.
+        Update DemoTest.java file in the SWTBot project by appending code after //CODE_GENERATE comment.
 
         Args:
             project_path: Path to the SWTBot project
             code_blocks: List of code blocks to combine
 
         Returns:
-            Path to the created file, or None if failed
+            Path to the updated file, or None if failed
         """
         try:
             # Create target directory
             demo_test_dir = os.path.join(project_path, DEMO_TEST_RELATIVE_PATH)
             os.makedirs(demo_test_dir, exist_ok=True)
 
-            # Combine code blocks
-            demo_test_content = []
+            demo_test_path = os.path.join(demo_test_dir, DEMO_TEST_FILENAME)
+
+            # Check if template file exists
+            if os.path.exists(demo_test_path):
+                # Read existing template file
+                with open(demo_test_path, 'r', encoding='utf-8') as f:
+                    template_content = f.read()
+
+                # Find the //CODE_GENERATE comment
+                code_generate_marker = "//CODE_GENERATE"
+                if code_generate_marker in template_content:
+                    # Split content at the marker
+                    parts = template_content.split(code_generate_marker, 1)
+                    template_before = parts[0] + code_generate_marker
+
+                    # Combine extracted code blocks
+                    extracted_code_content = []
+                    for i, code_block in enumerate(code_blocks, 1):
+                        extracted_code_content.append('\n    ')  # Add proper indentation
+                        extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
+                        if not code_block.content.endswith('\n'):
+                            extracted_code_content.append('\n')
+                        if i < len(code_blocks):
+                            extracted_code_content.append('\n')
+
+                    # Combine template with extracted code
+                    final_content = template_before + ''.join(extracted_code_content) + '\n}'
+
+                    # Write updated file
+                    with open(demo_test_path, 'w', encoding='utf-8') as f:
+                        f.write(final_content)
+
+                    _LOGGER.info(f"Updated DemoTest.java template with {len(code_blocks)} code blocks")
+                    return demo_test_path
+                else:
+                    _LOGGER.warning(f"//CODE_GENERATE marker not found in template file")
+                    # Fall back to appending at the end
+                    return self._create_demo_test_fallback(demo_test_path, template_content, code_blocks)
+            else:
+                # Template doesn't exist, create from scratch with default template
+                _LOGGER.info("Template file not found, creating with default template")
+                return self._create_demo_test_with_template(demo_test_path, code_blocks)
+
+        except Exception as e:
+            _LOGGER.error(f"Failed to update DemoTest.java: {e}")
+            return None
+
+    def _create_demo_test_fallback(self, demo_test_path: str, template_content: str, code_blocks: list) -> str:
+        """
+        Fallback method to append code at the end of template if //CODE_GENERATE marker not found.
+
+        Args:
+            demo_test_path: Path to the DemoTest.java file
+            template_content: Existing template content
+            code_blocks: List of code blocks to append
+
+        Returns:
+            Path to the updated file, or None if failed
+        """
+        try:
+            # Find the last closing brace and insert code before it
+            last_brace_index = template_content.rfind('}')
+            if last_brace_index != -1:
+                # Insert code before the last closing brace
+                before_brace = template_content[:last_brace_index]
+
+                # Combine extracted code blocks
+                extracted_code_content = []
+                extracted_code_content.append('\n    //CODE_GENERATE\n')
+                for i, code_block in enumerate(code_blocks, 1):
+                    extracted_code_content.append('    ')  # Add proper indentation
+                    extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
+                    if not code_block.content.endswith('\n'):
+                        extracted_code_content.append('\n')
+                    if i < len(code_blocks):
+                        extracted_code_content.append('\n')
+
+                # Combine content
+                final_content = before_brace + ''.join(extracted_code_content) + '\n}'
+
+                # Write updated file
+                with open(demo_test_path, 'w', encoding='utf-8') as f:
+                    f.write(final_content)
+
+                _LOGGER.info(f"Updated DemoTest.java (fallback) with {len(code_blocks)} code blocks")
+                return demo_test_path
+            else:
+                _LOGGER.error("Could not find closing brace in template file")
+                return None
+
+        except Exception as e:
+            _LOGGER.error(f"Failed to update DemoTest.java (fallback): {e}")
+            return None
+
+    def _create_demo_test_with_template(self, demo_test_path: str, code_blocks: list) -> str:
+        """
+        Create DemoTest.java with default template when template file doesn't exist.
+
+        Args:
+            demo_test_path: Path to the DemoTest.java file
+            code_blocks: List of code blocks to include
+
+        Returns:
+            Path to the created file, or None if failed
+        """
+        try:
+            # Default template content
+            template_content = '''package test.java.com.fpt.ai.scripts;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+
+import org.eclipse.swtbot.eclipse.finder.SWTWorkbenchBot;
+import org.eclipse.swtbot.swt.finder.junit.SWTBotJunit4ClassRunner;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import test.java.com.fpt.ai.library.common.BaseSWTBotLibrary;
+import test.java.com.fpt.ai.library.common.Parameters;
+
+/**
+* Basic SWTBot test to verify the framework is working
+*/
+@RunWith(SWTBotJunit4ClassRunner.class)
+public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
+
+    private SWTWorkbenchBot bot;
+
+    @Before
+    public void setUp() {
+        bot = new SWTWorkbenchBot();
+        // Close welcome screen if it exists
+        try {
+            bot.viewByTitle("Welcome").close();
+        } catch (Exception e) {
+        // Welcome screen might not exist, ignore
+        }
+    }
+
+    @After
+    public void tearDown() {
+    // Clean up if needed
+
+
+    //CODE_GENERATE
+'''
+
+            # Combine extracted code blocks
+            extracted_code_content = []
             for i, code_block in enumerate(code_blocks, 1):
-                demo_test_content.append(code_block.content)
+                extracted_code_content.append('\n    ')  # Add proper indentation
+                extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
                 if not code_block.content.endswith('\n'):
-                    demo_test_content.append('\n')
+                    extracted_code_content.append('\n')
                 if i < len(code_blocks):
-                    demo_test_content.append('\n')
+                    extracted_code_content.append('\n')
+
+            # Combine template with extracted code
+            final_content = template_content + ''.join(extracted_code_content) + '\n}'
 
             # Write file
-            demo_test_path = os.path.join(demo_test_dir, DEMO_TEST_FILENAME)
             with open(demo_test_path, 'w', encoding='utf-8') as f:
-                f.write(''.join(demo_test_content))
+                f.write(final_content)
 
-            _LOGGER.info(f"Created DemoTest.java with {len(code_blocks)} code blocks")
+            _LOGGER.info(f"Created DemoTest.java with default template and {len(code_blocks)} code blocks")
             return demo_test_path
 
         except Exception as e:
-            _LOGGER.error(f"Failed to create DemoTest.java: {e}")
+            _LOGGER.error(f"Failed to create DemoTest.java with template: {e}")
             return None
 
     def _create_project_zip(self, project_path: str) -> GeneratedFile:
@@ -463,7 +614,8 @@ class FileGenerator:
     def _handle_s32_demo_hackathon(self, response_text: str) -> FileGenerationResult:
         """
         Special handler for S32 IDE DEMO Hackathon requests.
-        Creates DemoTest.java in the swtbot-example project and returns a zip file.
+        Updates the existing DemoTest.java template by appending extracted code after the //CODE_GENERATE comment,
+        then returns a zip file of the swtbot-example project.
 
         Args:
             response_text: The complete response text to extract code from
@@ -497,13 +649,13 @@ class FileGenerator:
             # Clean the git repository (reset any changes) - but don't fail if it doesn't work
             self._cleanup_git_repository(SWTBOT_PROJECT_PATH)
 
-            # Create DemoTest.java in the project
+            # Update DemoTest.java template in the project
             demo_test_path = self._create_demo_test_file(SWTBOT_PROJECT_PATH, extracted_code.blocks)
             if not demo_test_path:
                 return FileGenerationResult(
                     files=[],
                     success=False,
-                    message="Failed to create DemoTest.java file",
+                    message="Failed to update DemoTest.java template file",
                     total_files=0
                 )
 
@@ -520,7 +672,7 @@ class FileGenerator:
             return FileGenerationResult(
                 files=[generated_file],
                 success=True,
-                message=f"Successfully created S32 IDE DEMO Hackathon project with DemoTest.java containing {len(extracted_code.blocks)} code blocks",
+                message=f"Successfully updated S32 IDE DEMO Hackathon project with DemoTest.java template containing {len(extracted_code.blocks)} code blocks",
                 total_files=1
             )
 
