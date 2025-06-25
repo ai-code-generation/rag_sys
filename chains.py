@@ -59,6 +59,7 @@ except Exception as e:
 def load_yaml_structured(file_path: str) -> List[Document]:
     """
     Load YAML file with structured parsing to better handle hierarchical data.
+    Handles both single documents and multi-entry YAML files.
 
     Args:
         file_path (str): Path to the YAML file
@@ -67,35 +68,70 @@ def load_yaml_structured(file_path: str) -> List[Document]:
         List[Document]: List of documents with structured content
     """
     try:
+        # First, try to load as multiple documents
+        documents = []
         with open(file_path, 'r', encoding='utf-8') as file:
-            yaml_content = yaml.safe_load(file)
+            yaml_docs = list(yaml.safe_load_all(file))
 
-        # Convert YAML content to structured text representation
-        if yaml_content is None:
-            structured_content = "Empty YAML file"
-        elif isinstance(yaml_content, dict):
-            # For dictionary YAML, create a structured representation
-            structured_content = _format_yaml_dict(yaml_content)
-        elif isinstance(yaml_content, list):
-            # For list YAML, create a structured representation
-            structured_content = _format_yaml_list(yaml_content)
+        # If we only get one document, check if it's a multi-entry file
+        if len(yaml_docs) == 1 and yaml_docs[0] is not None:
+            yaml_content = yaml_docs[0]
+
+            # Check if this might be a multi-entry file that wasn't properly separated
+            with open(file_path, 'r', encoding='utf-8') as file:
+                raw_content = file.read()
+
+            # Look for multiple id: entries which suggests multiple logical documents
+            import re
+            id_matches = re.findall(r'^id:\s*(\w+)', raw_content, re.MULTILINE)
+
+            if len(id_matches) > 1:
+                # This is a multi-entry file, split it manually
+                documents = _split_multi_entry_yaml(raw_content)
+            else:
+                # Single document
+                documents = [yaml_content]
         else:
-            # For simple values, convert to string
-            structured_content = str(yaml_content)
+            # Multiple documents properly separated
+            documents = [doc for doc in yaml_docs if doc is not None]
 
-        # Create document with enhanced metadata
-        metadata = {
-            "source": file_path,
-            "file_type": "yaml",
-            "yaml_structure": type(yaml_content).__name__,
-            "has_nested_structure": _has_nested_structure(yaml_content)
-        }
+        # Process each document
+        result_documents = []
+        for i, yaml_content in enumerate(documents):
+            if yaml_content is None:
+                continue
 
-        # Extract semantic metadata from YAML content
-        semantic_metadata = _extract_semantic_metadata(yaml_content, file_path)
-        metadata.update(semantic_metadata)
+            # Convert YAML content to structured text representation
+            if isinstance(yaml_content, dict):
+                structured_content = _format_yaml_dict(yaml_content)
+            elif isinstance(yaml_content, list):
+                structured_content = _format_yaml_list(yaml_content)
+            else:
+                structured_content = str(yaml_content)
 
-        return [Document(page_content=structured_content, metadata=metadata)]
+            # Create document with enhanced metadata
+            metadata = {
+                "source": file_path,
+                "file_type": "yaml",
+                "yaml_structure": type(yaml_content).__name__,
+                "has_nested_structure": _has_nested_structure(yaml_content),
+                "document_index": i
+            }
+
+            # Add document-specific metadata
+            if isinstance(yaml_content, dict):
+                if 'id' in yaml_content:
+                    metadata["document_id"] = yaml_content['id']
+                if 'title' in yaml_content:
+                    metadata["document_title"] = yaml_content['title']
+
+            # Extract semantic metadata from YAML content
+            semantic_metadata = _extract_semantic_metadata(yaml_content, file_path)
+            metadata.update(semantic_metadata)
+
+            result_documents.append(Document(page_content=structured_content, metadata=metadata))
+
+        return result_documents if result_documents else [Document(page_content="Empty YAML file", metadata={"source": file_path, "file_type": "yaml"})]
 
     except yaml.YAMLError as e:
         logger.warning(f"Failed to parse YAML file {file_path}: {e}. Falling back to TextLoader.")
@@ -107,7 +143,7 @@ def load_yaml_structured(file_path: str) -> List[Document]:
 
 
 def _format_yaml_dict(data: dict, indent: int = 0) -> str:
-    """Format dictionary data into a structured text representation."""
+    """Format dictionary data into a structured text representation preserving full content."""
     lines = []
     prefix = "  " * indent
 
@@ -119,22 +155,45 @@ def _format_yaml_dict(data: dict, indent: int = 0) -> str:
             lines.append(f"{prefix}{key}:")
             lines.append(_format_yaml_list(value, indent + 1))
         else:
-            lines.append(f"{prefix}{key}: {value}")
+            # Preserve multiline strings and complex values
+            if isinstance(value, str) and ('\n' in value or len(value) > 100):
+                # Handle multiline strings properly
+                lines.append(f"{prefix}{key}: |")
+                for line in str(value).split('\n'):
+                    lines.append(f"{prefix}  {line}")
+            else:
+                lines.append(f"{prefix}{key}: {value}")
 
     return "\n".join(lines)
 
 
 def _format_yaml_list(data: list, indent: int = 0) -> str:
-    """Format list data into a structured text representation."""
+    """Format list data into a structured text representation preserving full content."""
     lines = []
     prefix = "  " * indent
 
     for i, item in enumerate(data):
         if isinstance(item, dict):
-            lines.append(f"{prefix}- Item {i + 1}:")
-            lines.append(_format_yaml_dict(item, indent + 1))
+            # Don't use generic "Item X" labels - preserve the actual structure
+            lines.append(f"{prefix}-")
+            # Format each key-value pair in the dictionary
+            for key, value in item.items():
+                if isinstance(value, dict):
+                    lines.append(f"{prefix}  {key}:")
+                    lines.append(_format_yaml_dict(value, indent + 2))
+                elif isinstance(value, list):
+                    lines.append(f"{prefix}  {key}:")
+                    lines.append(_format_yaml_list(value, indent + 2))
+                else:
+                    # Handle multiline strings properly
+                    if isinstance(value, str) and ('\n' in value or len(value) > 100):
+                        lines.append(f"{prefix}  {key}: |")
+                        for line in str(value).split('\n'):
+                            lines.append(f"{prefix}    {line}")
+                    else:
+                        lines.append(f"{prefix}  {key}: {value}")
         elif isinstance(item, list):
-            lines.append(f"{prefix}- List {i + 1}:")
+            lines.append(f"{prefix}- ")
             lines.append(_format_yaml_list(item, indent + 1))
         else:
             lines.append(f"{prefix}- {item}")
@@ -149,6 +208,60 @@ def _has_nested_structure(data: Any) -> bool:
     elif isinstance(data, list):
         return any(isinstance(item, (dict, list)) for item in data)
     return False
+
+
+def _split_multi_entry_yaml(raw_content: str) -> List[Any]:
+    """
+    Split a multi-entry YAML file into separate documents.
+    Handles files with multiple entries that share the same top-level keys.
+
+    Args:
+        raw_content (str): Raw YAML file content
+
+    Returns:
+        List[Any]: List of parsed YAML documents
+    """
+    import re
+
+    # Find all id: entries to identify document boundaries
+    id_pattern = r'^id:\s*(\w+)'
+    matches = list(re.finditer(id_pattern, raw_content, re.MULTILINE))
+
+    if len(matches) <= 1:
+        # Single document, parse normally
+        return [yaml.safe_load(raw_content)]
+
+    documents = []
+
+    for i, match in enumerate(matches):
+        start_pos = match.start()
+
+        # Find the end position (start of next document or end of file)
+        if i + 1 < len(matches):
+            end_pos = matches[i + 1].start()
+            # Look for the last non-empty line before the next document
+            content_before_next = raw_content[start_pos:end_pos].rstrip()
+            # Find the actual end by looking for the last meaningful content
+            lines = content_before_next.split('\n')
+            while lines and (not lines[-1].strip() or lines[-1].strip().startswith('#')):
+                lines.pop()
+            if lines:
+                content_before_next = '\n'.join(lines)
+            document_content = content_before_next
+        else:
+            # Last document, take everything to the end
+            document_content = raw_content[start_pos:].rstrip()
+
+        try:
+            # Parse this document section
+            parsed_doc = yaml.safe_load(document_content)
+            if parsed_doc is not None:
+                documents.append(parsed_doc)
+        except yaml.YAMLError as e:
+            logger.warning(f"Failed to parse YAML document section starting with {match.group()}: {e}")
+            continue
+
+    return documents
 
 
 def _extract_semantic_metadata(yaml_content: Any, file_path: str) -> Dict[str, Any]:
@@ -406,6 +519,44 @@ def _categorize_filename(filename: str) -> str:
         return "general"
 
 
+def _print_llm_prompt(chain_type: str, formatted_prompt: str, query: str, context: str = None) -> None:
+    """
+    Print the complete prompt that will be sent to the LLM in a structured format.
+
+    Args:
+        chain_type (str): Type of chain (e.g., "RAG Chain", "LLM Chain")
+        formatted_prompt (str): The complete formatted prompt
+        query (str): The user's original query
+        context (str, optional): Retrieved context for RAG chains
+    """
+    print("\n" + "="*80)
+    print(f"🤖 LLM PROMPT - {chain_type}")
+    print("="*80)
+
+    print(f"\n📝 USER QUERY:")
+    print(f"   {query}")
+
+    if context:
+        print(f"\n📚 RETRIEVED CONTEXT:")
+        print(f"   Length: {len(context)} characters")
+        print(f"   Preview: {context[:200]}{'...' if len(context) > 200 else ''}")
+
+    print(f"\n🎯 COMPLETE PROMPT SENT TO LLM:")
+    print("-" * 60)
+    print(formatted_prompt)
+    print("-" * 60)
+
+    print(f"\n📊 PROMPT STATISTICS:")
+    print(f"   Total length: {len(formatted_prompt)} characters")
+    print(f"   Word count: {len(formatted_prompt.split())} words")
+    print(f"   Line count: {formatted_prompt.count(chr(10)) + 1} lines")
+
+    # Log to logger as well for persistence
+    logger.info(f"[{chain_type}] Prompt sent to LLM: {formatted_prompt}")
+
+    print("="*80 + "\n")
+
+
 @langchain_instrumentation_class_wrapper
 class NvidiaAPICatalog(BaseExample):
     def ingest_docs(self, filepath: str, filename: str) -> None:
@@ -491,7 +642,11 @@ class NvidiaAPICatalog(BaseExample):
         # Simple langchain chain to generate response based on user's query
         chain = prompt_template | llm | StrOutputParser()
         augmented_user_input = "\n\nQuestion: " + query + "\n"
-        logger.info(f"Prompt used for response generation: {prompt_template.format(input=augmented_user_input)}")
+
+        # Format and print the complete prompt before sending to LLM
+        formatted_prompt = prompt_template.format(input=augmented_user_input)
+        _print_llm_prompt("LLM Chain (No Knowledge Base)", formatted_prompt, query)
+
         return chain.stream({"input": augmented_user_input}, config={"callbacks": [self.cb_handler]})
 
     def rag_chain(self, query: str, chat_history: List["Message"], **kwargs) -> Generator[str, None, None]:
@@ -605,9 +760,9 @@ class NvidiaAPICatalog(BaseExample):
                 # Create input with context and user query to be ingested in prompt to retrieve contextal response from llm
                 augmented_user_input = "Context: " + context + "\n\nQuestion: " + query + "\n"
 
-                logger.info(
-                    f"Prompt used for response generation: {prompt_template.format(input=augmented_user_input)}"
-                )
+                # Format and print the complete prompt before sending to LLM
+                formatted_prompt = prompt_template.format(input=augmented_user_input)
+                _print_llm_prompt("RAG Chain (With Knowledge Base)", formatted_prompt, query, context)
                 return chain.stream({"input": augmented_user_input}, config={"callbacks": [self.cb_handler]})
         except Exception as e:
             logger.warning(f"Failed to generate response due to exception {e}")
