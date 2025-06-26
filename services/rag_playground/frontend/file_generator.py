@@ -23,7 +23,7 @@ import subprocess
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple, Optional, Tuple
 import logging
 
 from .code_extractor import CodeExtractor, ExtractedCode, CodeBlock
@@ -343,12 +343,14 @@ class FileGenerator:
 
     def _cleanup_git_repository(self, repo_path: str) -> None:
         """
-        Clean the git repository by resetting any changes.
+        Clean the git repository by resetting any changes and ensuring clean state.
 
         Args:
             repo_path: Path to the git repository
         """
         try:
+            _LOGGER.info(f"Cleaning git repository at {repo_path}")
+
             # Check if there are any changes
             git_status = subprocess.run(
                 ["git", "status", "--porcelain"],
@@ -358,213 +360,138 @@ class FileGenerator:
                 text=True
             )
 
-            # Only clean if there are changes
-            if git_status.stdout.strip():
+            changes = git_status.stdout.strip()
+            if changes:
+                _LOGGER.info(f"Found git changes: {changes}")
+
+                # Clean untracked files and directories
                 subprocess.run(
                     ["git", "clean", "-fd"],
                     cwd=repo_path,
                     check=True,
                     capture_output=True
                 )
+                _LOGGER.info("Cleaned untracked files")
+
+                # Reset all changes to HEAD
                 subprocess.run(
                     ["git", "reset", "--hard", "HEAD"],
                     cwd=repo_path,
                     check=True,
                     capture_output=True
                 )
-                _LOGGER.info("Cleaned git repository")
-        except subprocess.CalledProcessError:
-            _LOGGER.warning("Git cleanup failed (continuing anyway)")
+                _LOGGER.info("Reset to HEAD")
+            else:
+                _LOGGER.info("No git changes found")
+
+            # Always do a hard reset to ensure we're at a clean state
+            subprocess.run(
+                ["git", "reset", "--hard", "HEAD"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True
+            )
+            _LOGGER.info("Git repository cleaned successfully")
+
+        except subprocess.CalledProcessError as e:
+            _LOGGER.warning(f"Git cleanup failed: {e}")
         except Exception as e:
             _LOGGER.warning(f"Git cleanup error: {e}")
 
-    def _create_demo_test_file(self, project_path: str, code_blocks: list) -> str:
+    def _create_demo_test_file(self, project_path: str, code_blocks: list) -> Tuple[Optional[str], int]:
         """
         Update DemoTest.java file in the SWTBot project by appending code after //CODE_GENERATE comment.
+        This method now only uses the existing DemoTest.java template file and requires it to exist.
 
         Args:
             project_path: Path to the SWTBot project
             code_blocks: List of code blocks to combine
 
         Returns:
-            Path to the updated file, or None if failed
+            Tuple of (path to the updated file, number of unique code blocks used), or (None, 0) if failed
         """
         try:
             # Create target directory
             demo_test_dir = os.path.join(project_path, DEMO_TEST_RELATIVE_PATH)
-            os.makedirs(demo_test_dir, exist_ok=True)
-
             demo_test_path = os.path.join(demo_test_dir, DEMO_TEST_FILENAME)
 
-            # Check if template file exists
-            if os.path.exists(demo_test_path):
-                # Read existing template file
-                with open(demo_test_path, 'r', encoding='utf-8') as f:
-                    template_content = f.read()
+            # Template file must exist - no fallback to hardcoded template
+            if not os.path.exists(demo_test_path):
+                _LOGGER.error(f"DemoTest.java template file not found at {demo_test_path}")
+                return None, 0
 
-                # Find the //CODE_GENERATE comment
-                code_generate_marker = "//CODE_GENERATE"
-                if code_generate_marker in template_content:
-                    # Split content at the marker
-                    parts = template_content.split(code_generate_marker, 1)
-                    template_before = parts[0] + code_generate_marker
+            # Read existing template file
+            with open(demo_test_path, 'r', encoding='utf-8') as f:
+                template_content = f.read()
 
-                    # Combine extracted code blocks
-                    extracted_code_content = []
-                    for i, code_block in enumerate(code_blocks, 1):
-                        extracted_code_content.append('\n    ')  # Add proper indentation
-                        extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
-                        if not code_block.content.endswith('\n'):
-                            extracted_code_content.append('\n')
-                        if i < len(code_blocks):
-                            extracted_code_content.append('\n')
+            # Find the //CODE_GENERATE comment
+            code_generate_marker = "//CODE_GENERATE"
+            if code_generate_marker not in template_content:
+                _LOGGER.error(f"//CODE_GENERATE marker not found in template file at {demo_test_path}")
+                return None, 0
 
-                    # Combine template with extracted code
-                    final_content = template_before + ''.join(extracted_code_content) + '\n}'
+            # Split content at the marker
+            parts = template_content.split(code_generate_marker, 1)
+            template_before = parts[0] + code_generate_marker
 
-                    # Write updated file
-                    with open(demo_test_path, 'w', encoding='utf-8') as f:
-                        f.write(final_content)
+            # Check if template already has content after the marker (from previous runs)
+            existing_content_after_marker = ""
+            if len(parts) > 1:
+                existing_content_after_marker = parts[1]
+                existing_methods_count = (
+                    existing_content_after_marker.count("public void step01CreateProject()") +
+                    existing_content_after_marker.count("public void step01()")
+                )
+                if existing_methods_count > 0:
+                    _LOGGER.warning(f"Template already contains {existing_methods_count} methods after //CODE_GENERATE marker - will replace with new content")
+                    # We'll ignore the existing content and replace it entirely
 
-                    _LOGGER.info(f"Updated DemoTest.java template with {len(code_blocks)} code blocks")
-                    return demo_test_path
+            # Deduplicate code blocks by content to avoid duplicates
+            unique_code_blocks = []
+            seen_content = set()
+
+            for i, code_block in enumerate(code_blocks):
+                # Normalize content for comparison (strip whitespace and normalize line endings)
+                normalized_content = code_block.content.strip()
+                # Further normalize by removing extra whitespace and standardizing line endings
+                normalized_content = '\n'.join(line.strip() for line in normalized_content.split('\n') if line.strip())
+
+                if normalized_content and normalized_content not in seen_content:
+                    unique_code_blocks.append(code_block)
+                    seen_content.add(normalized_content)
+                    _LOGGER.debug(f"Added unique code block {i+1}: {len(normalized_content)} chars")
                 else:
-                    _LOGGER.warning(f"//CODE_GENERATE marker not found in template file")
-                    # Fall back to appending at the end
-                    return self._create_demo_test_fallback(demo_test_path, template_content, code_blocks)
-            else:
-                # Template doesn't exist, create from scratch with default template
-                _LOGGER.info("Template file not found, creating with default template")
-                return self._create_demo_test_with_template(demo_test_path, code_blocks)
+                    _LOGGER.debug(f"Skipped duplicate code block {i+1}: {len(normalized_content)} chars")
 
-        except Exception as e:
-            _LOGGER.error(f"Failed to update DemoTest.java: {e}")
-            return None
+            _LOGGER.info(f"Deduplicated {len(code_blocks)} code blocks to {len(unique_code_blocks)} unique blocks")
 
-    def _create_demo_test_fallback(self, demo_test_path: str, template_content: str, code_blocks: list) -> str:
-        """
-        Fallback method to append code at the end of template if //CODE_GENERATE marker not found.
-
-        Args:
-            demo_test_path: Path to the DemoTest.java file
-            template_content: Existing template content
-            code_blocks: List of code blocks to append
-
-        Returns:
-            Path to the updated file, or None if failed
-        """
-        try:
-            # Find the last closing brace and insert code before it
-            last_brace_index = template_content.rfind('}')
-            if last_brace_index != -1:
-                # Insert code before the last closing brace
-                before_brace = template_content[:last_brace_index]
-
-                # Combine extracted code blocks
-                extracted_code_content = []
-                extracted_code_content.append('\n    //CODE_GENERATE\n')
-                for i, code_block in enumerate(code_blocks, 1):
-                    extracted_code_content.append('    ')  # Add proper indentation
-                    extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
-                    if not code_block.content.endswith('\n'):
-                        extracted_code_content.append('\n')
-                    if i < len(code_blocks):
-                        extracted_code_content.append('\n')
-
-                # Combine content
-                final_content = before_brace + ''.join(extracted_code_content) + '\n}'
-
-                # Write updated file
-                with open(demo_test_path, 'w', encoding='utf-8') as f:
-                    f.write(final_content)
-
-                _LOGGER.info(f"Updated DemoTest.java (fallback) with {len(code_blocks)} code blocks")
-                return demo_test_path
-            else:
-                _LOGGER.error("Could not find closing brace in template file")
-                return None
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to update DemoTest.java (fallback): {e}")
-            return None
-
-    def _create_demo_test_with_template(self, demo_test_path: str, code_blocks: list) -> str:
-        """
-        Create DemoTest.java with default template when template file doesn't exist.
-
-        Args:
-            demo_test_path: Path to the DemoTest.java file
-            code_blocks: List of code blocks to include
-
-        Returns:
-            Path to the created file, or None if failed
-        """
-        try:
-            # Default template content
-            template_content = '''package test.java.com.fpt.ai.scripts;
-
-import static org.hamcrest.MatcherAssert.assertThat;
-
-import org.eclipse.swtbot.eclipse.finder.SWTWorkbenchBot;
-import org.eclipse.swtbot.swt.finder.junit.SWTBotJunit4ClassRunner;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-import test.java.com.fpt.ai.library.common.BaseSWTBotLibrary;
-import test.java.com.fpt.ai.library.common.Parameters;
-
-/**
-* Basic SWTBot test to verify the framework is working
-*/
-@RunWith(SWTBotJunit4ClassRunner.class)
-public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
-
-    private SWTWorkbenchBot bot;
-
-    @Before
-    public void setUp() {
-        bot = new SWTWorkbenchBot();
-        // Close welcome screen if it exists
-        try {
-            bot.viewByTitle("Welcome").close();
-        } catch (Exception e) {
-        // Welcome screen might not exist, ignore
-        }
-    }
-
-    @After
-    public void tearDown() {
-    // Clean up if needed
-
-
-    //CODE_GENERATE
-'''
-
-            # Combine extracted code blocks
+            # Combine unique extracted code blocks
             extracted_code_content = []
-            for i, code_block in enumerate(code_blocks, 1):
+            for i, code_block in enumerate(unique_code_blocks, 1):
                 extracted_code_content.append('\n    ')  # Add proper indentation
                 extracted_code_content.append(code_block.content.replace('\n', '\n    '))  # Indent all lines
                 if not code_block.content.endswith('\n'):
                     extracted_code_content.append('\n')
-                if i < len(code_blocks):
+                if i < len(unique_code_blocks):
                     extracted_code_content.append('\n')
 
-            # Combine template with extracted code
-            final_content = template_content + ''.join(extracted_code_content) + '\n}'
+            # Always use a clean closing brace to avoid preserving any duplicate content
+            # This ensures we start fresh each time and don't accumulate duplicates
+            template_after = '\n}'
 
-            # Write file
+            # Combine template with extracted code
+            final_content = template_before + ''.join(extracted_code_content) + template_after
+
+            # Write updated file
             with open(demo_test_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
 
-            _LOGGER.info(f"Created DemoTest.java with default template and {len(code_blocks)} code blocks")
-            return demo_test_path
+            _LOGGER.info(f"Updated DemoTest.java template with {len(unique_code_blocks)} unique code blocks (from {len(code_blocks)} total blocks)")
+            return demo_test_path, len(unique_code_blocks)
 
         except Exception as e:
-            _LOGGER.error(f"Failed to create DemoTest.java with template: {e}")
-            return None
+            _LOGGER.error(f"Failed to update DemoTest.java: {e}")
+            return None, 0
 
     def _create_project_zip(self, project_path: str) -> GeneratedFile:
         """
@@ -649,8 +576,26 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
             # Clean the git repository (reset any changes) - but don't fail if it doesn't work
             self._cleanup_git_repository(SWTBOT_PROJECT_PATH)
 
+            # Verify template file state after git cleanup
+            demo_test_path_check = os.path.join(SWTBOT_PROJECT_PATH, DEMO_TEST_RELATIVE_PATH, DEMO_TEST_FILENAME)
+            if os.path.exists(demo_test_path_check):
+                with open(demo_test_path_check, 'r', encoding='utf-8') as f:
+                    template_content_check = f.read()
+
+                # Count existing methods in template after cleanup
+                step01_create_count = template_content_check.count("public void step01CreateProject()")
+                step01_count = template_content_check.count("public void step01()")
+
+                _LOGGER.info(f"Template state after git cleanup - step01CreateProject(): {step01_create_count}, step01(): {step01_count}")
+
+                if step01_create_count > 0 or step01_count > 0:
+                    _LOGGER.warning("Template file already contains methods after git cleanup - this suggests the clean template in git has duplicates")
+            else:
+                _LOGGER.info("Template file does not exist after git cleanup")
+
             # Update DemoTest.java template in the project
-            demo_test_path = self._create_demo_test_file(SWTBOT_PROJECT_PATH, extracted_code.blocks)
+            demo_test_result = self._create_demo_test_file(SWTBOT_PROJECT_PATH, extracted_code.blocks)
+            demo_test_path, unique_blocks_count = demo_test_result
             if not demo_test_path:
                 return FileGenerationResult(
                     files=[],
@@ -672,7 +617,7 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
             return FileGenerationResult(
                 files=[generated_file],
                 success=True,
-                message=f"Successfully updated S32DSGEN project with DemoTest.java template containing {len(extracted_code.blocks)} code blocks",
+                message=f"Successfully updated S32DSGEN project with DemoTest.java template containing {unique_blocks_count} unique code blocks (from {len(extracted_code.blocks)} total blocks)",
                 total_files=1
             )
 
