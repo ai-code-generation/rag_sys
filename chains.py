@@ -661,7 +661,14 @@ class NvidiaAPICatalog(BaseExample):
         logger.info("Using rag to generate response from document")
         # WAR: Disable chat history (UI consistency).
         chat_history = []
-        system_message = [("system", prompts.get("rag_template", ""))]
+
+        # Use the base RAG template for system message
+        base_system_prompt = prompts.get("rag_template", "")
+        if "S32 IDE DEMO Hackathon" in query:
+            logger.info("S32 IDE DEMO Hackathon keyword detected, will add specialized prompt to user input")
+
+        system_message = [("system", base_system_prompt)]
+
         conversation_history = [(msg.role, msg.content) for msg in chat_history]
         user_input = [("user", "{input}")]
 
@@ -759,6 +766,28 @@ class NvidiaAPICatalog(BaseExample):
 
                 # Create input with context and user query to be ingested in prompt to retrieve contextal response from llm
                 augmented_user_input = "Context: " + context + "\n\nQuestion: " + query + "\n"
+
+                # Add S32 specialized prompt to user input if keyword is detected
+                if "S32 IDE DEMO Hackathon" in query:
+                    s32_user_prompt = """
+You are an expert test automation assistant specializing in the NXP S32 Design Studio (S32DS) IDE.
+You are an intelligent assistant using s32ds libary.
+If the debugger is not supported, generate a TODO comment.
+Your task is to generate **only the code** that automates a user's request or test step using the appropriate function calls or Java method stubs.
+
+🧠 Rules:
+1. Always return **only code**, wrapped in a proper code block (use ``` syntax).
+2. The code must reflect the **intended action** described in the user query.
+4. For workflows, generate methods in format:
+   ```java
+   public void stepXX() {
+       // code
+   }
+   ```
+5. No extra explanation. Code only.
+
+"""
+                    augmented_user_input = augmented_user_input + s32_user_prompt
 
                 # Format and print the complete prompt before sending to LLM
                 formatted_prompt = prompt_template.format(input=augmented_user_input)
