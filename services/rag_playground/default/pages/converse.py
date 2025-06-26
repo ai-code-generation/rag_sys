@@ -179,7 +179,7 @@ def _generate_download_html(files) -> str:
     # Get language badge and description based on file type
     if file_info.filename.endswith('.zip'):
         language_display = "Project"
-        description = "S32 IDE DEMO Hackathon project with DemoTest.java"
+        description = "S32DSGEN project with DemoTest.java"
         icon = "📦"
         button_text = "📥 Download Project"
     else:

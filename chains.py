@@ -664,8 +664,8 @@ class NvidiaAPICatalog(BaseExample):
 
         # Use the base RAG template for system message
         base_system_prompt = prompts.get("rag_template", "")
-        if "S32 IDE DEMO Hackathon" in query:
-            logger.info("S32 IDE DEMO Hackathon keyword detected, will add specialized prompt to user input")
+        if "S32DSGEN" in query:
+            logger.info("S32DSGEN keyword detected, will add specialized prompt to user input")
 
         system_message = [("system", base_system_prompt)]
 
@@ -768,7 +768,7 @@ class NvidiaAPICatalog(BaseExample):
                 augmented_user_input = "Context: " + context + "\n\nQuestion: " + query + "\n"
 
                 # Add S32 specialized prompt to user input if keyword is detected
-                if "S32 IDE DEMO Hackathon" in query:
+                if "S32DSGEN" in query:
                     s32_user_prompt = """
 You are an expert test automation assistant specializing in the NXP S32 Design Studio (S32DS) IDE.
 You are an intelligent assistant using s32ds libary.

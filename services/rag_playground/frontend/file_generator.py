@@ -30,8 +30,8 @@ from .code_extractor import CodeExtractor, ExtractedCode, CodeBlock
 
 _LOGGER = logging.getLogger(__name__)
 
-# Constants for S32 IDE DEMO Hackathon
-S32_TRIGGER_PHRASE = "s32 ide demo hackathon"
+# Constants for S32DSGEN
+S32_TRIGGER_PHRASE = "S32DSGEN"
 SWTBOT_PROJECT_PATH = "/swtbot-example"
 DEMO_TEST_RELATIVE_PATH = "src/test/java/com/fpt/ai/scripts"
 DEMO_TEST_FILENAME = "DemoTest.java"
@@ -128,9 +128,9 @@ class FileGenerator:
             FileGenerationResult with information about generated file
         """
         try:
-            # Check for special S32 IDE DEMO Hackathon handling
-            if S32_TRIGGER_PHRASE in user_query.lower():
-                _LOGGER.info("S32 IDE DEMO Hackathon detected - using special handler")
+            # Check for special S32DSGEN handling
+            if S32_TRIGGER_PHRASE in user_query:
+                _LOGGER.info("S32DSGEN detected - using special handler")
                 return self._handle_s32_demo_hackathon(response_text)
 
             # Extract code blocks
@@ -613,7 +613,7 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
 
     def _handle_s32_demo_hackathon(self, response_text: str) -> FileGenerationResult:
         """
-        Special handler for S32 IDE DEMO Hackathon requests.
+        Special handler for S32DSGEN requests.
         Updates the existing DemoTest.java template by appending extracted code after the //CODE_GENERATE comment,
         then returns a zip file of the swtbot-example project.
 
@@ -624,7 +624,7 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
             FileGenerationResult with zip file of the swtbot-example project
         """
         try:
-            _LOGGER.info("Processing S32 IDE DEMO Hackathon request")
+            _LOGGER.info("Processing S32DSGEN request")
 
             # Extract code blocks
             extracted_code = self.code_extractor.extract_code_blocks(response_text)
@@ -633,7 +633,7 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
                 return FileGenerationResult(
                     files=[],
                     success=False,
-                    message="No code blocks found for S32 IDE DEMO Hackathon",
+                    message="No code blocks found for S32DSGEN",
                     total_files=0
                 )
 
@@ -672,12 +672,12 @@ public class S32DSVerifyWatchVariable extends BaseSWTBotLibrary {
             return FileGenerationResult(
                 files=[generated_file],
                 success=True,
-                message=f"Successfully updated S32 IDE DEMO Hackathon project with DemoTest.java template containing {len(extracted_code.blocks)} code blocks",
+                message=f"Successfully updated S32DSGEN project with DemoTest.java template containing {len(extracted_code.blocks)} code blocks",
                 total_files=1
             )
 
         except Exception as e:
-            _LOGGER.error(f"Error handling S32 IDE DEMO Hackathon: {e}")
+            _LOGGER.error(f"Error handling S32DSGEN: {e}")
             return FileGenerationResult(
                 files=[],
                 success=False,
