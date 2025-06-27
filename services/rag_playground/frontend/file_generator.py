@@ -424,15 +424,24 @@ class FileGenerator:
             with open(demo_test_path, 'r', encoding='utf-8') as f:
                 template_content = f.read()
 
-            # Find the //CODE_GENERATE comment
+            # Find the //CODE_GENERATE comment (with or without space)
             code_generate_marker = "//CODE_GENERATE"
-            if code_generate_marker not in template_content:
-                _LOGGER.error(f"//CODE_GENERATE marker not found in template file at {demo_test_path}")
+            code_generate_marker_with_space = "// CODE_GENERATE"
+
+            # Check which marker format is present
+            if code_generate_marker in template_content:
+                marker_to_use = code_generate_marker
+                _LOGGER.debug(f"Found CODE_GENERATE marker: '{marker_to_use}'")
+            elif code_generate_marker_with_space in template_content:
+                marker_to_use = code_generate_marker_with_space
+                _LOGGER.debug(f"Found CODE_GENERATE marker: '{marker_to_use}'")
+            else:
+                _LOGGER.error(f"CODE_GENERATE marker not found in template file at {demo_test_path}. Expected '//CODE_GENERATE' or '// CODE_GENERATE'")
                 return None, 0
 
             # Split content at the marker
-            parts = template_content.split(code_generate_marker, 1)
-            template_before = parts[0] + code_generate_marker
+            parts = template_content.split(marker_to_use, 1)
+            template_before = parts[0] + marker_to_use
 
             # Check if template already has content after the marker (from previous runs)
             existing_content_after_marker = ""
@@ -443,7 +452,7 @@ class FileGenerator:
                     existing_content_after_marker.count("public void step01()")
                 )
                 if existing_methods_count > 0:
-                    _LOGGER.warning(f"Template already contains {existing_methods_count} methods after //CODE_GENERATE marker - will replace with new content")
+                    _LOGGER.warning(f"Template already contains {existing_methods_count} methods after {marker_to_use} marker - will replace with new content")
                     # We'll ignore the existing content and replace it entirely
 
             # Deduplicate code blocks by content to avoid duplicates
@@ -486,12 +495,64 @@ class FileGenerator:
             with open(demo_test_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
 
+            # Clean up other .java files in the directory, keeping only DemoTest.java
+            self._cleanup_other_java_files(demo_test_dir, DEMO_TEST_FILENAME)
+
             _LOGGER.info(f"Updated DemoTest.java template with {len(unique_code_blocks)} unique code blocks (from {len(code_blocks)} total blocks)")
             return demo_test_path, len(unique_code_blocks)
 
         except Exception as e:
             _LOGGER.error(f"Failed to update DemoTest.java: {e}")
             return None, 0
+
+    def _cleanup_other_java_files(self, target_dir: str, keep_filename: str) -> None:
+        """
+        Clean up all .java files in the target directory except the specified file to keep.
+
+        Args:
+            target_dir: Directory containing .java files to clean up
+            keep_filename: Name of the .java file to keep (e.g., "DemoTest.java")
+        """
+        try:
+            if not os.path.exists(target_dir):
+                _LOGGER.warning(f"Target directory does not exist: {target_dir}")
+                return
+
+            java_files_removed = 0
+            java_files_kept = 0
+
+            # Iterate through all files in the target directory
+            for filename in os.listdir(target_dir):
+                if filename.endswith('.java'):
+                    if filename == keep_filename:
+                        java_files_kept += 1
+                        _LOGGER.debug(f"Keeping Java file: {filename}")
+                    else:
+                        file_path = os.path.join(target_dir, filename)
+                        try:
+                            os.remove(file_path)
+                            java_files_removed += 1
+                            _LOGGER.debug(f"Removed Java file: {filename}")
+                        except Exception as e:
+                            _LOGGER.error(f"Failed to remove Java file {filename}: {e}")
+
+            if java_files_removed > 0:
+                _LOGGER.info(f"Cleaned up {java_files_removed} Java files, kept {java_files_kept} file(s) in {target_dir}")
+            else:
+                _LOGGER.debug(f"No Java files to clean up in {target_dir}, kept {java_files_kept} file(s)")
+
+        except Exception as e:
+            _LOGGER.error(f"Error during Java files cleanup in {target_dir}: {e}")
+
+    def _clean_java_files_in_directory(self, target_dir: str) -> None:
+        """
+        Clean up all .java files in the target directory except DemoTest.java.
+        This is a convenience method for backward compatibility with tests.
+
+        Args:
+            target_dir: Directory containing .java files to clean up
+        """
+        self._cleanup_other_java_files(target_dir, DEMO_TEST_FILENAME)
 
     def _create_project_zip(self, project_path: str) -> GeneratedFile:
         """
