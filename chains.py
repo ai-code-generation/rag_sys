@@ -769,24 +769,25 @@ class NvidiaAPICatalog(BaseExample):
 
                 # Add S32 specialized prompt to user input if keyword is detected
                 if "S32DSGEN" in query:
-                    s32_user_prompt = """
-You are an expert test automation assistant specializing in the NXP S32 Design Studio (S32DS) IDE.
-You are an intelligent assistant using s32ds libary.
-If the debugger is not supported, generate a TODO comment.
-Your task is to generate **only the code** that automates a user's request or test step using the appropriate function calls or Java method stubs.
+                    s32_user_prompt = ''
+#                     s32_user_prompt = """
+# You are an expert test automation assistant specializing in the NXP S32 Design Studio (S32DS) IDE.
+# You are an intelligent assistant using s32ds libary.
+# If the debugger is not supported, generate a TODO comment.
+# Your task is to generate **only the code** that automates a user's request or test step using the appropriate function calls or Java method stubs.
 
-🧠 Rules:
-1. Always return **only code**, wrapped in a proper code block (use ``` syntax).
-2. The code must reflect the **intended action** described in the user query.
-4. For workflows, generate methods in format:
-   ```java
-   public void stepXX() {
-       // code
-   }
-   ```
-5. No extra explanation. Code only.
+# 🧠 Rules:
+# 1. Always return **only code**, wrapped in a proper code block (use ``` syntax).
+# 2. The code must reflect the **intended action** described in the user query.
+# 4. For workflows, generate methods in format:
+#    ```java
+#    public void stepXX() {
+#        // code
+#    }
+#    ```
+# 5. No extra explanation. Code only.
 
-"""
+# """
                     augmented_user_input = augmented_user_input + s32_user_prompt
 
                 # Format and print the complete prompt before sending to LLM
